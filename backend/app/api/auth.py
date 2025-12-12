@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
-from passlib.context import CryptContext
+import hashlib
+import secrets
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from app.core.config import settings
@@ -9,7 +10,6 @@ from app.db.supabase_client import get_supabase
 
 router = APIRouter()
 security = HTTPBearer()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -28,12 +28,18 @@ class Token(BaseModel):
     token_type: str
 
 def hash_password(password: str) -> str:
-    # Bcrypt has 72 byte limit
-    return pwd_context.hash(password[:72])
+    # Use SHA-256 with salt
+    salt = secrets.token_hex(16)
+    password_hash = hashlib.sha256((password + salt).encode()).hexdigest()
+    return f"{salt}:{password_hash}"
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    # Bcrypt has 72 byte limit
-    return pwd_context.verify(plain_password[:72], hashed_password)
+    try:
+        salt, stored_hash = hashed_password.split(":")
+        password_hash = hashlib.sha256((plain_password + salt).encode()).hexdigest()
+        return password_hash == stored_hash
+    except:
+        return False
 
 def create_access_token(data: dict):
     to_encode = data.copy()
