@@ -73,7 +73,7 @@ async def register(user_data: UserCreate):
     user = result.data[0]
     
     # Create token
-    access_token = create_access_token(data={"sub": user.email})
+    access_token = create_access_token(data={"sub": user["email"]})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/login", response_model=Token)
@@ -89,7 +89,7 @@ async def login(user_data: UserLogin):
     # Update last login
     supabase.table("users").update({"last_login": datetime.utcnow().isoformat()}).eq("id", user["id"]).execute()
     
-    access_token = create_access_token(data={"sub": user.email})
+    access_token = create_access_token(data={"sub": user["email"]})
     return {"access_token": access_token, "token_type": "bearer"}
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
