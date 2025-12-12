@@ -2,8 +2,10 @@ from pydantic_settings import BaseSettings
 from typing import Optional
 
 class Settings(BaseSettings):
-    # Database
-    DATABASE_URL: str = "sqlite:///./haloagent.db"
+    # Supabase
+    SUPABASE_URL: str = "your_supabase_project_url"
+    SUPABASE_KEY: str = "your_supabase_anon_key"
+    SUPABASE_SERVICE_KEY: str = "your_supabase_service_role_key"
     
     # Meta AI
     META_AI_API_KEY: str = "placeholder_key"

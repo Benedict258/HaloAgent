@@ -5,9 +5,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from app.core.config import settings
-from app.models.user import User
-from app.db.base import get_db
-from sqlalchemy.orm import Session
+from app.db.supabase_client import supabase
 
 router = APIRouter()
 security = HTTPBearer()
@@ -42,47 +40,49 @@ def create_access_token(data: dict):
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
 
 @router.post("/register", response_model=Token)
-async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+async def register(user_data: UserCreate):
     # Check if user exists
-    if db.query(User).filter(User.email == user_data.email).first():
+    existing_user = supabase.table("users").select("id").eq("email", user_data.email).execute()
+    if existing_user.data:
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    if db.query(User).filter(User.phone_number == user_data.phone_number).first():
+    existing_phone = supabase.table("users").select("id").eq("phone_number", user_data.phone_number).execute()
+    if existing_phone.data:
         raise HTTPException(status_code=400, detail="Phone number already registered")
     
     # Create user
-    user = User(
-        email=user_data.email,
-        phone_number=user_data.phone_number,
-        password_hash=hash_password(user_data.password),
-        first_name=user_data.first_name,
-        last_name=user_data.last_name,
-        business_name=user_data.business_name
-    )
+    user_data_dict = {
+        "email": user_data.email,
+        "phone_number": user_data.phone_number,
+        "password_hash": hash_password(user_data.password),
+        "first_name": user_data.first_name,
+        "last_name": user_data.last_name,
+        "business_name": user_data.business_name
+    }
     
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    result = supabase.table("users").insert(user_data_dict).execute()
+    user = result.data[0]
     
     # Create token
     access_token = create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/login", response_model=Token)
-async def login(user_data: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == user_data.email).first()
+async def login(user_data: UserLogin):
+    result = supabase.table("users").select("*").eq("email", user_data.email).execute()
     
-    if not user or not verify_password(user_data.password, user.password_hash):
+    if not result.data or not verify_password(user_data.password, result.data[0]["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
+    user = result.data[0]
+    
     # Update last login
-    user.last_login = datetime.utcnow()
-    db.commit()
+    supabase.table("users").update({"last_login": datetime.utcnow().isoformat()}).eq("id", user["id"]).execute()
     
     access_token = create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
         payload = jwt.decode(credentials.credentials, settings.SECRET_KEY, algorithms=["HS256"])
         email: str = payload.get("sub")
@@ -91,22 +91,24 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
     
-    user = db.query(User).filter(User.email == email).first()
-    if user is None:
+    result = supabase.table("users").select("*").eq("email", email).execute()
+    if not result.data:
         raise HTTPException(status_code=401, detail="User not found")
+    
+    user = result.data[0]
     
     return user
 
 @router.get("/me")
-async def get_user_profile(current_user: User = Depends(get_current_user)):
+async def get_user_profile(current_user: dict = Depends(get_current_user)):
     return {
-        "id": current_user.id,
-        "email": current_user.email,
-        "phone_number": current_user.phone_number,
-        "first_name": current_user.first_name,
-        "last_name": current_user.last_name,
-        "business_name": current_user.business_name,
-        "preferred_language": current_user.preferred_language,
-        "is_verified": current_user.is_verified,
-        "created_at": current_user.created_at
+        "id": current_user["id"],
+        "email": current_user["email"],
+        "phone_number": current_user["phone_number"],
+        "first_name": current_user["first_name"],
+        "last_name": current_user["last_name"],
+        "business_name": current_user["business_name"],
+        "preferred_language": current_user["preferred_language"],
+        "is_verified": current_user["is_verified"],
+        "created_at": current_user["created_at"]
     }
