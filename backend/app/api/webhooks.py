@@ -10,8 +10,17 @@ async def verify_webhook(
     hub_challenge: str = Query(alias="hub.challenge"),
     hub_verify_token: str = Query(alias="hub.verify_token")
 ):
-    if hub_mode == "subscribe" and hub_verify_token == settings.WHATSAPP_WEBHOOK_VERIFY_TOKEN:
-        return int(hub_challenge)
+    # Check against global token (fallback) or user-specific tokens
+    if hub_mode == "subscribe":
+        if hub_verify_token == settings.WHATSAPP_WEBHOOK_VERIFY_TOKEN:
+            return int(hub_challenge)
+        
+        # TODO: Check user-specific verify tokens from database
+        # from app.models.user import User
+        # user = db.query(User).filter(User.whatsapp_webhook_verify_token == hub_verify_token).first()
+        # if user:
+        #     return int(hub_challenge)
+    
     raise HTTPException(status_code=403, detail="Verification failed")
 
 @router.post("/webhooks/whatsapp")

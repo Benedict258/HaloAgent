@@ -28,3 +28,9 @@ class User(Base):
     # Preferences
     notification_preferences = Column(Text)  # JSON string
     business_hours = Column(Text)  # JSON string
+    
+    # WhatsApp Business Integration (per business)
+    whatsapp_phone_number_id = Column(String(50))
+    whatsapp_business_account_id = Column(String(50))
+    whatsapp_access_token = Column(Text)
+    whatsapp_webhook_verify_token = Column(String(100))
