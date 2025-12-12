@@ -1,0 +1,30 @@
+# FastAPI & Server
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.10.0
+pydantic-settings==2.6.0
+
+# Async & Workers
+celery==5.3.6
+redis==5.0.1
+
+# Meta & Messaging
+requests==2.31.0
+httpx==0.26.0
+
+# LLM & AI
+openai==1.10.0
+
+# Security & Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+cryptography==42.0.0
+
+# Utilities
+python-dotenv==1.0.0
+python-multipart==0.0.6
+pytz==2024.1
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
