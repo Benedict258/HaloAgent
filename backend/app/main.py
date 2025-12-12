@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.webhooks import router as webhook_router
 from app.api.admin import router as admin_router
+from app.api.auth import router as auth_router
 
 app = FastAPI(
     title="HaloAgent API",
@@ -30,6 +31,7 @@ async def root():
 
 app.include_router(webhook_router, tags=["webhooks"])
 app.include_router(admin_router, tags=["admin"])
+app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 
 @app.get("/health")
 async def health():
