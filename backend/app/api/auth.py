@@ -5,7 +5,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from app.core.config import settings
-from app.db.supabase_client import supabase
+from app.db.supabase_client import get_supabase
 
 router = APIRouter()
 security = HTTPBearer()
@@ -42,6 +42,7 @@ def create_access_token(data: dict):
 @router.post("/register", response_model=Token)
 async def register(user_data: UserCreate):
     # Check if user exists
+    supabase = get_supabase()
     existing_user = supabase.table("users").select("id").eq("email", user_data.email).execute()
     if existing_user.data:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -69,6 +70,7 @@ async def register(user_data: UserCreate):
 
 @router.post("/login", response_model=Token)
 async def login(user_data: UserLogin):
+    supabase = get_supabase()
     result = supabase.table("users").select("*").eq("email", user_data.email).execute()
     
     if not result.data or not verify_password(user_data.password, result.data[0]["password_hash"]):
@@ -91,6 +93,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
     
+    supabase = get_supabase()
     result = supabase.table("users").select("*").eq("email", email).execute()
     if not result.data:
         raise HTTPException(status_code=401, detail="User not found")
