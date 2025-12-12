@@ -51,7 +51,9 @@ try:
 except Exception:
     # Fallback if .env file has issues
     settings = Settings(
-        DATABASE_URL="sqlite:///./haloagent.db",
+        SUPABASE_URL="placeholder_url",
+        SUPABASE_KEY="placeholder_key", 
+        SUPABASE_SERVICE_KEY="placeholder_service_key",
         META_AI_API_KEY="placeholder_key",
         WHATSAPP_API_TOKEN="placeholder_token",
         WHATSAPP_PHONE_NUMBER_ID="placeholder_id",
