@@ -1,5 +1,14 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 from typing import Optional
+
+# Ensure the backend .env file is loaded no matter where the app is started
+BASE_DIR = Path(__file__).resolve().parents[2]
+ENV_FILE = BASE_DIR / ".env"
+if ENV_FILE.exists():
+    load_dotenv(dotenv_path=ENV_FILE)
 
 class Settings(BaseSettings):
     # Supabase
