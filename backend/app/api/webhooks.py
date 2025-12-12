@@ -4,7 +4,7 @@ from app.services.orchestrator import orchestrator
 
 router = APIRouter()
 
-@router.get("/webhook/whatsapp")
+@router.get("/webhooks/whatsapp")
 async def verify_webhook(
     hub_mode: str = Query(alias="hub.mode"),
     hub_challenge: str = Query(alias="hub.challenge"),
@@ -14,7 +14,7 @@ async def verify_webhook(
         return int(hub_challenge)
     raise HTTPException(status_code=403, detail="Verification failed")
 
-@router.post("/webhook/whatsapp")
+@router.post("/webhooks/whatsapp")
 async def receive_whatsapp_message(request: Request):
     body = await request.json()
     
@@ -39,13 +39,13 @@ async def receive_whatsapp_message(request: Request):
     
     return {"status": "ok"}
 
-@router.post("/webhook/sms")
+@router.post("/webhooks/sms")
 async def receive_sms(request: Request):
     """Handle SMS webhooks from Twilio"""
     # TODO: Implement SMS processing
     return {"status": "ok"}
 
-@router.post("/webhook/ussd")
+@router.post("/webhooks/ussd")
 async def receive_ussd(request: Request):
     """Handle USSD session callbacks"""
     # TODO: Implement USSD processing
