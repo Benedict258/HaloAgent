@@ -67,7 +67,7 @@ except Exception:
         WHATSAPP_API_TOKEN="placeholder_token",
         WHATSAPP_PHONE_NUMBER_ID="placeholder_id",
         WHATSAPP_BUSINESS_ACCOUNT_ID="placeholder_account",
-        WHATSAPP_WEBHOOK_VERIFY_TOKEN="haloagent_verify_2024",
+        WHATSAPP_WEBHOOK_VERIFY_TOKEN="haloagent_verify_2025",
         SECRET_KEY="haloagent-dev-secret-key-min-32-chars-2024",
         ENCRYPTION_KEY="haloagent-encryption-key-32bytes"
     )
