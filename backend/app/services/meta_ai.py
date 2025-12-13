@@ -11,34 +11,39 @@ class MetaAIService:
             "Content-Type": "application/json"
         }
     
-    async def generate_response(self, message: str, context: str = "") -> Optional[str]:
-        """Generate AI response using Llama 3"""
+    async def chat_completion(self, messages: list, temperature: float = 0.7) -> Optional[str]:
+        """Generic chat completion using Llama 3"""
         try:
-            prompt = f"""You are HaloAgent, a helpful CRM assistant for Nigerian small businesses.
-Context: {context}
-Customer message: {message}
-
-Respond helpfully and professionally. If it's an order, ask for details. If it's a complaint, be empathetic."""
-
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.endpoint}/chat/completions",
                     headers=self.headers,
                     json={
                         "model": "llama-3.3-70b-versatile",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": 150,
-                        "temperature": 0.7
-                    }
+                        "messages": messages,
+                        "max_tokens": 500,
+                        "temperature": temperature
+                    },
+                    timeout=30.0
                 )
                 
                 if response.status_code == 200:
                     data = response.json()
                     return data["choices"][0]["message"]["content"]
-                return "I'm here to help! Please tell me more about what you need."
+                
+                print(f"Meta AI Error {response.status_code}: {response.text}")
+                return None
                 
         except Exception as e:
             print(f"Meta AI error: {e}")
-            return "I'm here to help! Please tell me more about what you need."
+            return None
+
+    async def generate_response(self, message: str, context: str = "") -> Optional[str]:
+        """Legacy method for backward compatibility - simpler prompt"""
+        prompt = f"""You are HaloAgent, a helpful CRM assistant.
+Context: {context}
+Customer message: {message}"""
+        
+        return await self.chat_completion([{"role": "user", "content": prompt}])
 
 meta_ai_service = MetaAIService()

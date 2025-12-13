@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 class WhatsAppService:
     def __init__(self):
         self.base_url = f"https://graph.facebook.com/v18.0/{settings.WHATSAPP_PHONE_NUMBER_ID}"
+        token = settings.WHATSAPP_API_TOKEN
+        masked_token = f"{token[:10]}...{token[-5:]}" if token and len(token) > 20 else "N/A"
+        logger.info(f"Initialized WhatsAppService with PhoneID: {settings.WHATSAPP_PHONE_NUMBER_ID}, Token: {masked_token}")
+        
         self.headers = {
             "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
             "Content-Type": "application/json"

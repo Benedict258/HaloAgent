@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     WHATSAPP_API_TOKEN: str = "placeholder_token"
     WHATSAPP_PHONE_NUMBER_ID: str = "placeholder_id"
     WHATSAPP_BUSINESS_ACCOUNT_ID: str = "placeholder_account"
-    WHATSAPP_WEBHOOK_VERIFY_TOKEN: str = "haloagent_verify_2024"
+    WHATSAPP_WEBHOOK_VERIFY_TOKEN: str = "haloagent_verify_2025"
     
     # SMS
     TWILIO_ACCOUNT_SID: Optional[str] = None

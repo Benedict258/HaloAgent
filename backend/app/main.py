@@ -30,7 +30,7 @@ async def root():
         "status": "running"
     }
 
-app.include_router(webhook_router, tags=["webhooks"])
+app.include_router(webhook_router, prefix="/api", tags=["webhooks"])
 app.include_router(admin_router, tags=["admin"])
 app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(business_router, prefix="/business", tags=["business-setup"])
