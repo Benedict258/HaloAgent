@@ -53,6 +53,27 @@ class AgentTools:
         await loyalty_service.award_points(phone, total_amount, "purchase")
         return json.dumps({"status": "created", "order_id": "ORD-12345", "message": "Order created successfully. Points awarded."})
 
+    async def check_message_logs(self, phone: str, limit: int = 10) -> str:
+        """Fetch recent message logs for a specific user to debugging or monitoring."""
+        # Using Supabase directly here would be ideal, or via analytics service.
+        # Assuming analytics_service or direct supabase client.
+        from app.db.supabase_client import supabase
+        try:
+            # We need to find contact_id first or just search by phone if we joined, but schema uses contact_id.
+            # Let's try to query message_logs via contact ID or if message_logs has phone? Schema says user_id/contact_id.
+            # Let's usage loyalty service to finding contact id.
+            contact = await loyalty_service._get_or_create_contact(phone)
+            if not contact:
+                return json.dumps({"status": "error", "message": "Contact not found"})
+                
+            contact_id = contact['id']
+            res = supabase.table("message_logs").select("*").eq("contact_id", contact_id).order("created_at", desc=True).limit(limit).execute()
+            
+            logs = res.data if res.data else []
+            return json.dumps({"logs": logs, "count": len(logs)})
+        except Exception as e:
+            return json.dumps({"status": "error", "message": str(e)})
+
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
         """Return the JSON schema definitions for the tools."""
         return [
@@ -125,7 +146,19 @@ class AgentTools:
                     },
                     "required": ["phone", "items", "total_amount"]
                 }
+            },
+            {
+                "name": "check_message_logs",
+                "description": "Fetch recent message history for a user for debugging.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "phone": {"type": "string", "description": "Customer phone number"},
+                        "limit": {"type": "integer", "description": "Number of messages to retrieve (default 10)"}
+                    },
+                    "required": ["phone"]
+                }
             }
         ]
-
+        
 agent_tools = AgentTools()
