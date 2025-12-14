@@ -16,52 +16,58 @@ class HaloAgent:
 
     async def run(self, message: str, phone: str, context: Optional[str] = None) -> str:
         """
-        Run the agent loop for a given user message.
+        Run the agent loop - handles tool calls silently and returns natural responses.
         """
+        
+        # Check for natural consent phrases
+        consent_phrases = ["sure", "ok", "okay", "sounds good", "go ahead", "yes", "yep", "yeah"]
+        is_consent = any(phrase in message.lower() for phrase in consent_phrases)
+        
         messages = [
             {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": f"User Phone: {phone}\nContext: {context}\nMessage: {message}"}
+            {"role": "user", "content": f"{context}\nUser says: {message}"}
         ]
 
         for i in range(self.max_iterations):
-            response_text = await meta_ai_service.chat_completion(messages)
+            response_text = await meta_ai_service.chat_completion(messages, temperature=0.7)
             
             if not response_text:
-                return "I apologize, but I'm having trouble connecting to my brain right now. Please try again later."
+                return "I'm having a bit of trouble right now. Mind trying again in a sec?"
             
-            # Clean up potential markdown code blocks if the LLM wraps JSON in ```json ... ```
             cleaned_response = self._clean_json_response(response_text)
             
             try:
                 response_data = json.loads(cleaned_response)
             except json.JSONDecodeError:
-                # If valid JSON wasn't returned, treat it as a raw text response (fallback)
-                logger.warning(f"Agent returned non-JSON response: {response_text}")
+                # LLM returned plain text - use it directly
+                logger.info(f"Agent returned natural text: {response_text[:100]}")
                 return response_text
 
             action = response_data.get("action")
             
             if action == "final_answer":
-                return response_data.get("message", "I have processed your request.")
+                return response_data.get("message", "Got it!")
             
             elif action == "tool_call":
                 tool_name = response_data.get("tool_name")
                 parameters = response_data.get("parameters", {})
                 
-                # Automatically inject phone if missing and needed
+                # Auto-inject phone
                 if "phone" not in parameters:
                     parameters["phone"] = phone
                 
+                # Execute tool silently
                 tool_result = await self._execute_tool(tool_name, parameters)
+                logger.info(f"Tool {tool_name} executed: {tool_result[:100]}")
                 
-                # Append the interaction to history so the agent knows what happened
-                messages.append({"role": "assistant", "content": response_text})
-                messages.append({"role": "user", "content": f"Tool Output ({tool_name}): {tool_result}"})
+                # Continue conversation with tool result
+                messages.append({"role": "assistant", "content": cleaned_response})
+                messages.append({"role": "user", "content": f"Tool result: {tool_result}"})
                 
             else:
-                return "I'm not sure how to proceed. Please try rephrasing."
+                return "Let me know how I can help!"
                 
-        return "I'm taking too long to think. Please try a simpler request."
+        return "This is taking a bit longer than expected. Can you try asking in a simpler way?"
 
     async def _execute_tool(self, tool_name: str, parameters: Dict[str, Any]) -> str:
         try:

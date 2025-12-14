@@ -15,44 +15,62 @@ logger = logging.getLogger(__name__)
 class MessageOrchestrator:
     async def process_message(self, phone: str, message: str, message_id: str, channel: str = "meta") -> str:
         """
-        Process message using the AI Agent for natural interaction.
+        Process message using the AI Agent - handles tool calls silently and returns natural responses.
         """
         
-        # 1. State Retrieval
+        # 1. Get contact info
         state = await state_service.get_state(phone)
         contact_id = state.get("contact_id")
-        contact_name = state.get("name") # If available in state or need fetch
-        if not contact_name and contact_id:
-             # Ideally fetch name from DB if not in lightweight state
-             pass
-
-        # Log Incoming
+        contact_name = state.get("name")
+        
+        # Log incoming
         await self._log_message(phone, message, message_id, contact_id, direction="IN", channel=channel)
         
-        # 2. Context Building
-        # We pass minimal context to the Agent so it knows who it's talking to
-        context = f"User Phone: {phone}. Channel: {channel}."
+        # 2. Build context for agent
+        context = f"Phone: {phone}"
         if contact_name:
-            context += f" Name: {contact_name}."
+            context += f", Name: {contact_name}"
             
-        # 3. AI Agent Execution
-        # The Agent uses the System Prompt to decide: Greeting, Tool Call, or Clarification.
+        # 3. Run agent (handles tool calls internally)
         try:
             from app.services.agent.core import agent
             response_text = await agent.run(message, phone, context)
+            
+            # Clean up any leaked technical language
+            response_text = self._sanitize_response(response_text)
+            
         except Exception as e:
-            logger.error(f"Agent flow failed: {e}")
-            response_text = "I'm having a little trouble connecting right now. Please try again in a moment!"
+            logger.error(f"Agent error: {e}")
+            response_text = "I'm having a little trouble right now. Give me a moment and try again!"
 
-        # 4. State Update (Minimal)
-        # We update interaction time. Harder to track 'stage' without explicit signals from Agent, 
-        # unless Agent returns it. For now, we rely on Conversation History in Agent Core.
-        await state_service.update_state(phone, {"last_intent": "AGENT_PROCESSED"}) # simplified
+        # 4. Update state
+        await state_service.update_state(phone, {"last_message_ts": datetime.utcnow().isoformat()})
 
-        # Log Outgoing
+        # Log outgoing
         await self._log_message(phone, response_text, f"reply-{message_id}", contact_id, direction="OUT", is_bot=True, channel=channel)
         
         return response_text
+    
+    def _sanitize_response(self, text: str) -> str:
+        """Remove any technical language that leaked into user response"""
+        # Remove common technical phrases
+        bad_phrases = [
+            "I will classify",
+            "intent_classifier",
+            "tool_call",
+            "parameters",
+            "action":",
+            "final_answer",
+            "Let me process",
+            "Processing your request"
+        ]
+        
+        for phrase in bad_phrases:
+            if phrase.lower() in text.lower():
+                # If technical language detected, return friendly fallback
+                return "Got it! Let me help you with that."
+        
+        return text
 
     async def _log_message(self, phone: str, content: str, message_id: str, contact_id: int = None, direction: str = "IN", is_bot: bool = False, channel: str = "meta"):
         """Log message to database"""
