@@ -96,12 +96,13 @@ async def receive_whatsapp_message(request: Request):
         logger.info(f"Twilio payload received for validation")
 
         from_number = data.get("From", "").replace("whatsapp:", "")
+        to_number = data.get("To", "").replace("whatsapp:", "")
         body = data.get("Body", "")
         message_id = data.get("MessageSid", "twilio-msg")
 
         if from_number and body:
-            logger.info(f"Processing Twilio message from {from_number}: {body}")
-            response_text = await orchestrator.process_message(from_number, body, message_id, channel="twilio")
+            logger.info(f"Processing Twilio message from {from_number} to {to_number}: {body}")
+            response_text = await orchestrator.process_message(from_number, body, message_id, to_number, channel="twilio")
             if response_text:
                 await send_twilio_message(from_number, response_text)
 
@@ -133,8 +134,10 @@ async def receive_whatsapp_message(request: Request):
 
                     if message_type == "text":
                         text_body = message.get("text", {}).get("body", "")
-                        logger.info(f"Processing Meta message from {from_number}: {text_body}")
-                        response_text = await orchestrator.process_message(from_number, text_body, message_id, channel="meta")
+                        phone_id = value.get("metadata", {}).get("phone_number_id", settings.WHATSAPP_PHONE_NUMBER_ID)
+                        to_number = f"+{phone_id}" if not phone_id.startswith("+") else phone_id
+                        logger.info(f"Processing Meta message from {from_number} to {to_number}: {text_body}")
+                        response_text = await orchestrator.process_message(from_number, text_body, message_id, to_number, channel="meta")
                         
                         if response_text:
                              phone_id = value.get("metadata", {}).get("phone_number_id", settings.WHATSAPP_PHONE_NUMBER_ID)
