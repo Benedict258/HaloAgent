@@ -59,7 +59,7 @@ class MessageOrchestrator:
             "intent_classifier",
             "tool_call",
             "parameters",
-            "action":",
+            "action",
             "final_answer",
             "Let me process",
             "Processing your request"
