@@ -5,6 +5,7 @@ from app.api.webhooks import router as webhook_router
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.business_setup import router as business_router
+from app.api.onboarding import router as onboarding_router
 
 app = FastAPI(
     title="HaloAgent API",
@@ -34,6 +35,7 @@ app.include_router(webhook_router, tags=["webhooks"])
 app.include_router(admin_router, tags=["admin"])
 app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(business_router, prefix="/business", tags=["business-setup"])
+app.include_router(onboarding_router, prefix="/onboarding", tags=["onboarding"])
 
 @app.get("/health")
 async def health():

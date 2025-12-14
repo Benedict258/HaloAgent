@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: str = "True"
     RETENTION_DAYS: int = 90
+    USE_EMOJIS: str = "True"
     
     class Config:
         env_file = ".env"

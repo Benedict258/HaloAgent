@@ -1,10 +1,8 @@
 from app.services.whatsapp import whatsapp_service
-from app.services.intent import intent_service
+from app.services.business import business_service
+from app.services.contact import contact_service
 from app.services.state import state_service
 from app.services.meta_ai import meta_ai_service
-from app.services.language import language_service
-from app.services.analytics import analytics_service
-from app.services.loyalty import loyalty_service
 from app.db.supabase_client import supabase
 from datetime import datetime
 import json
@@ -13,25 +11,48 @@ import logging
 logger = logging.getLogger(__name__)
 
 class MessageOrchestrator:
-    async def process_message(self, phone: str, message: str, message_id: str, channel: str = "meta") -> str:
+    async def process_message(self, phone: str, message: str, message_id: str, to_number: str, channel: str = "whatsapp") -> str:
         """
-        Process message using the AI Agent - handles tool calls silently and returns natural responses.
+        Process message with business resolution and auto-contact creation.
+        
+        Flow:
+        1. Resolve business from to_number (WhatsApp number)
+        2. Get or create contact (phone = contact ID)
+        3. Check consent status
+        4. Route to AI agent
         """
         
-        # 1. Get contact info
-        state = await state_service.get_state(phone)
-        contact_id = state.get("contact_id")
-        contact_name = state.get("name")
+        # 1. Resolve business
+        business = await business_service.get_business_by_whatsapp(to_number)
+        if not business:
+            logger.error(f"No business found for WhatsApp number: {to_number}")
+            return "Service unavailable. Please contact support."
+        
+        business_id = business["business_id"]
+        
+        # 2. Get or create contact (phone = contact ID)
+        contact = await contact_service.get_or_create_contact(phone, business_id)
+        if not contact:
+            return "Unable to process your message. Please try again."
+        
+        contact_id = contact["id"]
+        contact_name = contact.get("name")
+        opt_in = contact.get("opt_in", False)
         
         # Log incoming
         await self._log_message(phone, message, message_id, contact_id, direction="IN", channel=channel)
         
-        # 2. Build context for agent
-        context = f"Phone: {phone}"
+        # 3. Build context for agent
+        context = f"Phone: {phone}, Business: {business['business_name']}, Opt-in: {opt_in}"
         if contact_name:
             context += f", Name: {contact_name}"
+        
+        # Add business inventory to context
+        inventory = business.get("inventory", [])
+        if inventory:
+            context += f", Products: {json.dumps(inventory)}"
             
-        # 3. Run agent (handles tool calls internally)
+        # 4. Run agent (handles tool calls internally)
         try:
             from app.services.agent.core import agent
             response_text = await agent.run(message, phone, context)
