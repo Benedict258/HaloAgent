@@ -53,6 +53,29 @@ class AgentTools:
         await loyalty_service.award_points(phone, total_amount, "purchase")
         return json.dumps({"status": "created", "order_id": "ORD-12345", "message": "Order created successfully. Points awarded."})
 
+    async def intent_classifier(self, text: str, context: Dict[str, Any] = None) -> str:
+        """Classify the intent of the user message."""
+        from app.services.intent import intent_service
+        result = await intent_service.identify_intent(text, context)
+        return json.dumps(result)
+
+    async def extract_order_details(self, text: str, menu: List[Any] = None) -> str:
+        """Extract structured order details from text."""
+        # We can usage Meta AI directly or regex. Since Agent call is expensive, maybe regex for simple?
+        # But for robustness, let's assume we return a structured pending object.
+        # For now, simple mock or heuristic. The Agent itself is an LLM, asking it to call another LLM tool is funny.
+        # But following instructions:
+        from app.services.meta_ai import meta_ai_service
+        prompt = f"Extract items, qty, and delivery from: '{text}'. Return JSON: {{'items':[], 'delivery':{{}}}}"
+        try:
+             res = await meta_ai_service.chat_completion(prompt)
+             # Extract JSON from res
+             if "{" in res:
+                 return res[res.find("{"):res.rfind("}")+1]
+             return json.dumps({"items": [], "error": "parsing_failed"})
+        except:
+             return json.dumps({"items": []})
+             
     async def check_message_logs(self, phone: str, limit: int = 10) -> str:
         """Fetch recent message logs for a specific user to debugging or monitoring."""
         # Using Supabase directly here would be ideal, or via analytics service.
@@ -157,6 +180,30 @@ class AgentTools:
                         "limit": {"type": "integer", "description": "Number of messages to retrieve (default 10)"}
                     },
                     "required": ["phone"]
+                }
+            },
+            {
+                "name": "intent_classifier",
+                "description": "Classify the intent of the input text (ORDER, STATUS, FEEDBACK, HELP).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "The user message text"},
+                        "context": {"type": "object", "description": "Optional context"}
+                    },
+                    "required": ["text"]
+                }
+            },
+            {
+                "name": "extract_order_details",
+                "description": "Extract structured order information from text.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "The user message text"},
+                        "menu": {"type": "array", "description": "Optional menu items to match against"}
+                    },
+                    "required": ["text"]
                 }
             }
         ]
