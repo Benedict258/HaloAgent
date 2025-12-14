@@ -11,6 +11,7 @@ redis==5.0.1
 # Meta & Messaging
 requests==2.31.0
 httpx>=0.24.0,<1.0
+twilio>=8.0.0
 
 # LLM & AI
 openai>=1.10.0
