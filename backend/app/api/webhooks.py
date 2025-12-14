@@ -25,8 +25,27 @@ async def verify_webhook(
 
 @router.post("/webhooks/whatsapp")
 async def receive_whatsapp_message(request: Request):
-    body = await request.json()
+    content_type = request.headers.get("content-type", "")
     
+    # CASE 1: Twilio (Form URL Encoded)
+    if "application/x-www-form-urlencoded" in content_type:
+        form = await request.form()
+        data = dict(form)
+        # Twilio maps fields differently
+        from_number = data.get("From", "").replace("whatsapp:", "")
+        body = data.get("Body", "")
+        message_id = data.get("MessageSid", "twilio-msg")
+        
+        if from_number and body:
+            await orchestrator.process_message(from_number, body, message_id)
+        return {"status": "ok"}
+        
+    # CASE 2: Meta Cloud API (JSON)
+    try:
+        body = await request.json()
+    except Exception:
+         return {"status": "ignored", "reason": "invalid_json"}
+
     if body.get("object") != "whatsapp_business_account":
         return {"status": "ignored"}
     
