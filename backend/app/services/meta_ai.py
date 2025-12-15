@@ -3,11 +3,22 @@ import asyncio
 from app.core.config import settings
 from typing import Optional
 import time
+import os
 
 class MetaAIService:
     def __init__(self):
-        self.api_key = settings.META_AI_API_KEY
-        self.endpoint = settings.META_AI_ENDPOINT
+        # Check if we should use OpenRouter as fallback
+        self.use_openrouter = os.getenv("USE_OPENROUTER", "false").lower() == "true"
+        
+        if self.use_openrouter:
+            self.api_key = os.getenv("OPENROUTER_API_KEY")
+            self.endpoint = "https://openrouter.ai/api/v1"
+            self.model = "meta-llama/llama-3.1-8b-instruct:free"
+        else:
+            self.api_key = settings.META_AI_API_KEY
+            self.endpoint = settings.META_AI_ENDPOINT
+            self.model = "llama-3.3-70b-versatile"
+        
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -30,7 +41,7 @@ class MetaAIService:
                     f"{self.endpoint}/chat/completions",
                     headers=self.headers,
                     json={
-                        "model": "llama-3.3-70b-versatile",
+                        "model": self.model,
                         "messages": messages,
                         "max_tokens": 800,
                         "temperature": 0.3

@@ -27,7 +27,7 @@ async def get_orders(business_id: str = "sweetcrumbs_001", status: str = None):
         orders = result.data or []
         for order in orders:
             if order.get('contact_id'):
-                contact = supabase.table("contacts").select("name, phone").eq("id", order['contact_id']).single().execute()
+                contact = supabase.table("contacts").select("name, phone_number").eq("id", order['contact_id']).single().execute()
                 order['contacts'] = contact.data if contact.data else {"name": "Unknown", "phone": "N/A"}
             else:
                 order['contacts'] = {"name": "Unknown", "phone": "N/A"}
