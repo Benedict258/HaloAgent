@@ -13,7 +13,7 @@ class VoiceService:
     
     async def transcribe_audio(self, audio_url: str, content_type: str = "audio/ogg") -> str:
         """
-        Transcribe audio to text using Whisper API
+        Transcribe audio to text using Deepgram API (better codec support)
         
         Args:
             audio_url: URL to audio file (from WhatsApp)
@@ -23,7 +23,24 @@ class VoiceService:
             Transcribed text
         """
         try:
-            # Download audio file with Twilio auth
+            # Try Deepgram first (better codec support, free tier)
+            deepgram_key = os.getenv("DEEPGRAM_API_KEY")
+            if deepgram_key:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        "https://api.deepgram.com/v1/listen",
+                        headers={"Authorization": f"Token {deepgram_key}"},
+                        json={"url": audio_url},
+                        timeout=30.0
+                    )
+                    if response.status_code == 200:
+                        result = response.json()
+                        text = result.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0].get("transcript", "")
+                        if text:
+                            logger.info(f"✅ Transcribed (Deepgram): {text}")
+                            return text
+            
+            # Fallback to Groq Whisper
             async with httpx.AsyncClient() as client:
                 audio_response = await client.get(
                     audio_url,
@@ -31,9 +48,8 @@ class VoiceService:
                     timeout=30.0
                 )
                 audio_data = audio_response.content
-                logger.info(f"Downloaded audio: {len(audio_data)} bytes, type: {content_type}")
+                logger.info(f"Downloaded audio: {len(audio_data)} bytes")
             
-            # Use Groq Whisper API with proper multipart form
             import aiohttp
             form = aiohttp.FormData()
             form.add_field('file', audio_data, filename='audio.ogg', content_type='application/octet-stream')
@@ -48,9 +64,9 @@ class VoiceService:
                 ) as response:
                     if response.status == 200:
                         result = await response.json()
-                        transcribed_text = result.get("text", "")
-                        logger.info(f"✅ Transcribed: {transcribed_text}")
-                        return transcribed_text
+                        text = result.get("text", "")
+                        logger.info(f"✅ Transcribed (Groq): {text}")
+                        return text
                     else:
                         error_text = await response.text()
                         logger.error(f"Transcription failed: {error_text}")
