@@ -13,17 +13,17 @@ class VoiceService:
     
     async def transcribe_audio(self, audio_url: str, content_type: str = "audio/ogg") -> str:
         """
-        Transcribe audio to text using Deepgram API (better codec support)
+        Transcribe audio using AssemblyAI (best codec support for WhatsApp)
         
         Args:
-            audio_url: URL to audio file (from WhatsApp)
-            content_type: MIME type of audio
+            audio_url: URL to audio file
+            content_type: MIME type
         
         Returns:
             Transcribed text
         """
         try:
-            # Download audio with Twilio auth
+            # Download audio
             async with httpx.AsyncClient() as client:
                 audio_response = await client.get(
                     audio_url,
@@ -31,52 +31,48 @@ class VoiceService:
                     timeout=30.0
                 )
                 audio_data = audio_response.content
-                logger.info(f"Downloaded audio: {len(audio_data)} bytes")
+                logger.info(f"Downloaded: {len(audio_data)} bytes")
             
-            # Try Deepgram (better codec support)
-            deepgram_key = os.getenv("DEEPGRAM_API_KEY")
-            if deepgram_key:
+            # AssemblyAI (free tier, best codec support)
+            assembly_key = os.getenv("ASSEMBLYAI_API_KEY")
+            if assembly_key:
                 async with httpx.AsyncClient() as client:
-                    response = await client.post(
-                        "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true",
-                        headers={
-                            "Authorization": f"Token {deepgram_key}",
-                            "Content-Type": "audio/ogg"
-                        },
+                    # Upload
+                    upload_response = await client.post(
+                        "https://api.assemblyai.com/v2/upload",
+                        headers={"authorization": assembly_key},
                         content=audio_data,
                         timeout=30.0
                     )
-                    if response.status_code == 200:
-                        result = response.json()
-                        text = result.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0].get("transcript", "")
-                        if text:
-                            logger.info(f"✅ Transcribed (Deepgram): {text}")
-                            return text
-                    else:
-                        logger.warning(f"Deepgram failed: {response.text}")
+                    if upload_response.status_code == 200:
+                        upload_url = upload_response.json()["upload_url"]
+                        
+                        # Transcribe
+                        transcript_response = await client.post(
+                            "https://api.assemblyai.com/v2/transcript",
+                            headers={"authorization": assembly_key},
+                            json={"audio_url": upload_url},
+                            timeout=30.0
+                        )
+                        transcript_id = transcript_response.json()["id"]
+                        
+                        # Poll for result
+                        import asyncio
+                        for _ in range(30):
+                            await asyncio.sleep(1)
+                            result_response = await client.get(
+                                f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
+                                headers={"authorization": assembly_key}
+                            )
+                            result = result_response.json()
+                            if result["status"] == "completed":
+                                text = result.get("text", "")
+                                logger.info(f"✅ Transcribed: {text}")
+                                return text
+                            elif result["status"] == "error":
+                                break
             
-            # Fallback to Groq Whisper
-            import aiohttp
-            form = aiohttp.FormData()
-            form.add_field('file', audio_data, filename='audio.ogg', content_type='application/octet-stream')
-            form.add_field('model', 'whisper-large-v3')
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.groq.com/openai/v1/audio/transcriptions",
-                    headers={"Authorization": f"Bearer {settings.META_AI_API_KEY}"},
-                    data=form,
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        text = result.get("text", "")
-                        logger.info(f"✅ Transcribed (Groq): {text}")
-                        return text
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"Transcription failed: {error_text}")
-                        return ""
+            return ""
                     
         except Exception as e:
             logger.error(f"Transcription error: {e}")
