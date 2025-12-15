@@ -154,11 +154,11 @@ class VoiceService:
     async def _send_twilio_voice(self, to_number: str, audio_bytes: bytes):
         """Send voice via Twilio using Supabase storage"""
         try:
-            # Upload to Supabase Storage
+            # Upload to Supabase Storage with service key
             from supabase import create_client
             import time
             
-            supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+            supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
             
             filename = f"voice_{to_number.replace('+', '')}_{int(time.time())}.mp3"
             supabase.storage.from_("voice-messages").upload(filename, audio_bytes)
