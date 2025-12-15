@@ -31,6 +31,11 @@ class MetaAIService:
                     data = response.json()
                     return data["choices"][0]["message"]["content"]
                 
+                # Handle rate limit
+                if response.status_code == 429:
+                    print(f"Meta AI Rate Limit: {response.text}")
+                    return "I'm experiencing high demand right now. Please try again in a few minutes! 🙏"
+                
                 print(f"Meta AI Error {response.status_code}: {response.text}")
                 return None
                 

@@ -47,6 +47,7 @@ def create_access_token(data: dict):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
 
+@router.post("/signup", response_model=Token)
 @router.post("/register", response_model=Token)
 async def register(user_data: UserCreate):
     # Check if user exists
