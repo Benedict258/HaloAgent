@@ -18,7 +18,7 @@ class PaymentApproval(BaseModel):
 async def get_orders(business_id: str = "sweetcrumbs_001", status: str = None):
     """Get all orders for a business"""
     try:
-        query = supabase.table("orders").select("*")
+        query = supabase.table("orders").select("*").eq("business_id", business_id)
         if status and status != 'all':
             query = query.eq("status", status)
         result = query.order("created_at", desc=True).limit(50).execute()

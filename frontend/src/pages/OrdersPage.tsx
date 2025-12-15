@@ -28,8 +28,8 @@ export default function OrdersPage() {
   const fetchOrders = async () => {
     try {
       const url = filter === 'all' 
-        ? `${API_URL}/api/orders`
-        : `${API_URL}/api/orders?status=${filter}`
+        ? `${API_URL}/api/orders?business_id=sweetcrumbs_001`
+        : `${API_URL}/api/orders?business_id=sweetcrumbs_001&status=${filter}`
       const res = await fetch(url)
       const data = await res.json()
       setOrders(Array.isArray(data) ? data : [])

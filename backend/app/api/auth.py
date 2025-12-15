@@ -60,14 +60,28 @@ async def register(user_data: UserCreate):
     if existing_phone.data:
         raise HTTPException(status_code=400, detail="Phone number already registered")
     
-    # Create user
+    # Create business first
+    import secrets
+    business_id = f"{user_data.business_name.lower().replace(' ', '_')}_{secrets.token_hex(4)}"
+    business_data = {
+        "business_id": business_id,
+        "business_name": user_data.business_name,
+        "owner_email": user_data.email,
+        "owner_phone": user_data.phone_number,
+        "whatsapp_number": "+14155238886",  # Default Twilio sandbox
+        "inventory": []
+    }
+    supabase.table("businesses").insert(business_data).execute()
+    
+    # Create user linked to business
     user_data_dict = {
         "email": user_data.email,
         "phone_number": user_data.phone_number,
         "password_hash": hash_password(user_data.password),
         "first_name": user_data.first_name,
         "last_name": user_data.last_name,
-        "business_name": user_data.business_name
+        "business_name": user_data.business_name,
+        "business_id": business_id
     }
     
     result = supabase.table("users").insert(user_data_dict).execute()
@@ -120,7 +134,8 @@ async def get_user_profile(current_user: dict = Depends(get_current_user)):
         "first_name": current_user["first_name"],
         "last_name": current_user["last_name"],
         "business_name": current_user["business_name"],
-        "preferred_language": current_user["preferred_language"],
-        "is_verified": current_user["is_verified"],
+        "business_id": current_user.get("business_id"),
+        "preferred_language": current_user.get("preferred_language"),
+        "is_verified": current_user.get("is_verified"),
         "created_at": current_user["created_at"]
     }
