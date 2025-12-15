@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class MediaService:
     
-    async def send_product_image(self, to_number: str, product: dict, channel: str = "whatsapp"):
+    async def send_product_image(self, to_number: str, product: dict, channel: str = "twilio"):
         """
         Send product with image via WhatsApp
         
@@ -22,9 +22,10 @@ class MediaService:
         }
         """
         
-        if channel == "whatsapp":
+        # Default to Twilio for now since that's what we're using
+        if channel == "meta":
             return await self._send_whatsapp_image(to_number, product)
-        elif channel == "twilio":
+        else:
             return await self._send_twilio_image(to_number, product)
     
     async def _send_whatsapp_image(self, to_number: str, product: dict):
@@ -96,7 +97,7 @@ class MediaService:
             logger.error(f"Error sending Twilio image: {e}")
             return False
     
-    async def send_multiple_products(self, to_number: str, products: list, channel: str = "whatsapp"):
+    async def send_multiple_products(self, to_number: str, products: list, channel: str = "twilio"):
         """Send multiple products as separate messages"""
         sent_count = 0
         
