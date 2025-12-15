@@ -162,20 +162,31 @@ class AgentTools:
     async def send_all_products(self, phone: str, business_id: str) -> str:
         """Send all products with images (one message per product)"""
         try:
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            logger.info(f"send_all_products called: phone={phone}, business_id={business_id}")
+            
             # Get inventory
             inventory_result = await supabase_tools.get_business_inventory(business_id)
+            logger.info(f"Inventory result: {inventory_result}")
+            
             inventory_data = json.loads(inventory_result)
             
             if inventory_data.get("status") != "success":
+                logger.error(f"Inventory fetch failed: {inventory_data}")
                 return json.dumps({"status": "error", "message": "Could not fetch inventory"})
             
             products = inventory_data.get("inventory", [])
+            logger.info(f"Found {len(products)} products")
             
             if not products:
                 return json.dumps({"status": "error", "message": "No products available"})
             
             # Send each product
-            sent_count = await media_service.send_multiple_products(phone, products)
+            logger.info(f"Sending {len(products)} products to {phone}")
+            sent_count = await media_service.send_multiple_products(phone, products, channel="twilio")
+            logger.info(f"Sent {sent_count} products successfully")
             
             return json.dumps({
                 "status": "success",
@@ -184,6 +195,9 @@ class AgentTools:
             })
             
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"send_all_products error: {e}", exc_info=True)
             return json.dumps({"status": "error", "message": str(e)})
     
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
