@@ -43,7 +43,7 @@ class MessageOrchestrator:
         await self._log_message(phone, message, message_id, contact_id, direction="IN", channel=channel)
         
         # 3. Build context for agent
-        context = f"Phone: {phone}, Business: {business['business_name']}, Opt-in: {opt_in}"
+        context = f"Phone: {phone}, Business ID: {business_id}, Business Name: {business['business_name']}, Opt-in: {opt_in}"
         if contact_name:
             context += f", Name: {contact_name}"
         
@@ -51,6 +51,9 @@ class MessageOrchestrator:
         inventory = business.get("inventory", [])
         if inventory:
             context += f", Products: {json.dumps(inventory)}"
+        
+        # CRITICAL: Store business_id for agent to use in tool calls
+        context += f"\n\nIMPORTANT: When calling tools, use business_id='{business_id}'"
             
         # 4. Run agent (handles tool calls internally)
         try:
