@@ -33,49 +33,28 @@ class VoiceService:
                 audio_data = audio_response.content
                 logger.info(f"Downloaded audio: {len(audio_data)} bytes, type: {content_type}")
             
-            # Convert to MP3 for better compatibility
-            try:
-                from pydub import AudioSegment
-                
-                # Load audio from bytes
-                audio = AudioSegment.from_file(io.BytesIO(audio_data))
-                
-                # Export as MP3
-                mp3_buffer = io.BytesIO()
-                audio.export(mp3_buffer, format="mp3")
-                audio_data = mp3_buffer.getvalue()
-                filename = "audio.mp3"
-                content_type = "audio/mpeg"
-                logger.info(f"Converted to MP3: {len(audio_data)} bytes")
-            except ImportError:
-                # Fallback if pydub not available
-                logger.warning("pydub not available, using original format")
-                filename = "audio.ogg"
-            except Exception as e:
-                logger.warning(f"Audio conversion failed: {e}, using original")
-                filename = "audio.ogg"
+            # Use Groq Whisper API with proper multipart form
+            import aiohttp
+            form = aiohttp.FormData()
+            form.add_field('file', audio_data, filename='audio.ogg', content_type='application/octet-stream')
+            form.add_field('model', 'whisper-large-v3')
             
-            # Use Groq Whisper API
-            async with httpx.AsyncClient() as client:
-                files = {"file": (filename, audio_data, content_type)}
-                data = {"model": "whisper-large-v3"}
-                
-                response = await client.post(
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
                     "https://api.groq.com/openai/v1/audio/transcriptions",
                     headers={"Authorization": f"Bearer {settings.META_AI_API_KEY}"},
-                    files=files,
-                    data=data,
-                    timeout=30.0
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    transcribed_text = result.get("text", "")
-                    logger.info(f"✅ Transcribed: {transcribed_text}")
-                    return transcribed_text
-                else:
-                    logger.error(f"Transcription failed: {response.text}")
-                    return ""
+                    data=form,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        transcribed_text = result.get("text", "")
+                        logger.info(f"✅ Transcribed: {transcribed_text}")
+                        return transcribed_text
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Transcription failed: {error_text}")
+                        return ""
                     
         except Exception as e:
             logger.error(f"Transcription error: {e}")
