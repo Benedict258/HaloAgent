@@ -10,9 +10,9 @@ business_data = {
     "default_language": "en",
     "supported_languages": ["en", "yo"],
     "inventory": [
-        {"name": "Chocolate Cake", "price": 5000, "available": True, "description": "Rich chocolate cake"},
-        {"name": "Vanilla Cake", "price": 4500, "available": True, "description": "Classic vanilla"},
-        {"name": "Red Velvet Cake", "price": 5500, "available": True, "description": "Smooth red velvet"}
+        {"name": "Chocolate Cake", "price": 5000, "available": True, "description": "Rich chocolate cake", "image_url": "https://example.com/chocolate-cake.jpg"},
+        {"name": "Vanilla Cake", "price": 4500, "available": True, "description": "Classic vanilla", "image_url": "https://example.com/vanilla-cake.jpg"},
+        {"name": "Red Velvet Cake", "price": 5500, "available": True, "description": "Smooth red velvet", "image_url": "https://example.com/red-velvet-cake.jpg"}
     ],
     "active": True
 }
