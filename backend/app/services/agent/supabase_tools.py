@@ -61,8 +61,8 @@ class SupabaseTools:
                 "business_id": business_id,
                 "items": items,
                 "total": total,
-                "status": "CONFIRMED",
-                "delivery_type": delivery_type,
+                "status": "pending_payment",
+                "fulfillment_type": delivery_type,
                 "created_at": datetime.utcnow().isoformat()
             }
             
