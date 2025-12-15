@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useDashboardStats } from "@/hooks/useDashboard";
 import { Sidebar, SidebarBody, SidebarLink } from "@/components/ui/sidebar";
 import { LayoutDashboard, UserCog, Settings, LogOut } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -113,12 +114,13 @@ export const LogoIcon = () => {
 
 // Content using Bento Grid
 const DashboardContent = () => {
+    const { stats, loading } = useDashboardStats();
 
     const features = [
         {
             Icon: FileTextIcon,
             name: "Orders",
-            description: "View and manage all incoming orders.",
+            description: loading ? "Loading..." : `${stats.total_orders} total orders, ${stats.pending_orders} pending`,
             href: "#",
             cta: "View Orders",
             background: <div className="absolute inset-0 bg-blue-50 opacity-10" />,
@@ -126,17 +128,17 @@ const DashboardContent = () => {
         },
         {
             Icon: InputIcon,
-            name: "Inventory",
-            description: "Update products, prices, and stock.",
+            name: "Contacts",
+            description: loading ? "Loading..." : `${stats.total_contacts} customers`,
             href: "#",
-            cta: "Manage Inventory",
+            cta: "View Contacts",
             background: <div className="absolute inset-0 bg-green-50 opacity-10" />,
             className: "lg:col-start-1 lg:col-end-2 lg:row-start-1 lg:row-end-3",
         },
         {
             Icon: GlobeIcon,
-            name: "Analytics",
-            description: "See sales trends and customer insights.",
+            name: "Revenue",
+            description: loading ? "Loading..." : `₦${stats.total_revenue.toLocaleString()} total`,
             href: "#",
             cta: "View Report",
             background: <div className="absolute inset-0 bg-purple-50 opacity-10" />,

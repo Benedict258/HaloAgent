@@ -1,5 +1,13 @@
-// API configuration for local backend
+import { createClient } from '@supabase/supabase-js'
+
+// API configuration
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+// Supabase client
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 // Helper function for authenticated requests
 export const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
