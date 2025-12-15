@@ -114,7 +114,12 @@ async def receive_whatsapp_message(request: Request):
                 if transcribed_text:
                     response_text = await orchestrator.process_message(from_number, transcribed_text, message_id, to_number, channel="twilio")
                     if response_text:
-                        await send_twilio_message(from_number, response_text)
+                        # Reply with voice
+                        audio_bytes = await voice_service.text_to_speech(response_text)
+                        if audio_bytes:
+                            await voice_service.send_voice_message(from_number, audio_bytes, "twilio")
+                        else:
+                            await send_twilio_message(from_number, response_text)
                 else:
                     await send_twilio_message(from_number, "Sorry, I couldn't understand the voice note. Can you type your message?")
                 return JSONResponse(content={"status": "ok", "platform": "twilio"})
@@ -172,12 +177,18 @@ async def receive_whatsapp_message(request: Request):
                             phone_id = value.get("metadata", {}).get("phone_number_id", settings.WHATSAPP_PHONE_NUMBER_ID)
                             to_number = f"+{phone_id}" if not phone_id.startswith("+") else phone_id
                             response_text = await orchestrator.process_message(from_number, transcribed_text, message_id, to_number, channel="meta")
+                            
+                            if response_text:
+                                # Reply with voice
+                                audio_bytes = await voice_service.text_to_speech(response_text)
+                                if audio_bytes:
+                                    await voice_service.send_voice_message(from_number, audio_bytes, "meta")
+                                else:
+                                    await send_meta_message(from_number, response_text, phone_id)
                         else:
                             response_text = "Sorry, I couldn't understand the voice note. Can you type your message?"
-                        
-                        if response_text:
-                             phone_id = value.get("metadata", {}).get("phone_number_id", settings.WHATSAPP_PHONE_NUMBER_ID)
-                             await send_meta_message(from_number, response_text, phone_id)
+                            phone_id = value.get("metadata", {}).get("phone_number_id", settings.WHATSAPP_PHONE_NUMBER_ID)
+                            await send_meta_message(from_number, response_text, phone_id)
 
     return JSONResponse(content={"status": "ok", "platform": "meta"})
 

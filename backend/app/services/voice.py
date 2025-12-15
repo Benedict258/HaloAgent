@@ -101,34 +101,29 @@ class VoiceService:
             logger.error(f"Transcription error: {e}", exc_info=True)
             return ""
     
-    async def text_to_speech(self, text: str, voice: str = "alloy") -> bytes:
+    async def text_to_speech(self, text: str) -> bytes:
         """
-        Convert text to speech using OpenAI TTS
-        
-        Args:
-            text: Text to convert
-            voice: Voice to use (alloy, echo, fable, onyx, nova, shimmer)
-        
-        Returns:
-            Audio bytes (MP3)
+        Convert text to speech using Deepgram Aura TTS
         """
         try:
+            deepgram_key = os.getenv("DEEPGRAM_API_KEY")
+            if not deepgram_key:
+                logger.error("No Deepgram key for TTS")
+                return None
+            
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    "https://api.openai.com/v1/audio/speech",
+                    "https://api.deepgram.com/v1/speak?model=aura-asteria-en",
                     headers={
-                        "Authorization": f"Bearer {settings.META_AI_API_KEY}",
+                        "Authorization": f"Token {deepgram_key}",
                         "Content-Type": "application/json"
                     },
-                    json={
-                        "model": "tts-1",
-                        "input": text,
-                        "voice": voice
-                    },
+                    json={"text": text},
                     timeout=30.0
                 )
                 
                 if response.status_code == 200:
+                    logger.info(f"✅ Generated TTS: {len(response.content)} bytes")
                     return response.content
                 else:
                     logger.error(f"TTS failed: {response.text}")
@@ -157,31 +152,29 @@ class VoiceService:
             return False
     
     async def _send_twilio_voice(self, to_number: str, audio_bytes: bytes):
-        """Send voice via Twilio"""
+        """Send voice via Twilio using Supabase storage"""
         try:
+            # Upload to Supabase Storage
+            from supabase import create_client
+            supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+            
+            filename = f"voice_{to_number.replace('+', '')}_{int(os.time.time())}.mp3"
+            supabase.storage.from_("voice-messages").upload(filename, audio_bytes)
+            
+            # Get public URL
+            audio_url = supabase.storage.from_("voice-messages").get_public_url(filename)
+            
+            # Send via Twilio
             from twilio.rest import Client
-            
-            # Save audio temporarily
-            temp_path = f"/tmp/voice_{to_number.replace('+', '')}.mp3"
-            with open(temp_path, "wb") as f:
-                f.write(audio_bytes)
-            
-            # Upload to public URL (you'd use Supabase Storage here)
-            # For now, we'll use Twilio's media URL approach
-            
             client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
             
             message = client.messages.create(
                 from_=f"whatsapp:{settings.TWILIO_PHONE_NUMBER}",
                 to=f"whatsapp:{to_number}",
-                media_url=[f"https://your-cdn.com/voice.mp3"]  # Replace with actual URL
+                media_url=[audio_url]
             )
             
-            logger.info(f"Voice sent via Twilio: {message.sid}")
-            
-            # Clean up
-            os.remove(temp_path)
-            
+            logger.info(f"Voice sent: {message.sid}")
             return True
             
         except Exception as e:
