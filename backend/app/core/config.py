@@ -53,8 +53,16 @@ class Settings(BaseSettings):
     RETENTION_DAYS: int = 90
     USE_EMOJIS: str = "True"
     
+    # Voice services
+    DEEPGRAM_API_KEY: Optional[str] = None
+    ASSEMBLYAI_API_KEY: Optional[str] = None
+    
+    # Build (ignored by app, just for env)
+    RENDER_BUILD_COMMAND: Optional[str] = None
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 settings = Settings()

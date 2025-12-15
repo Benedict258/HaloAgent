@@ -36,11 +36,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     'Authorization': `Bearer ${token}`
                 }
             })
-            .then(res => res.json())
+            .then(res => {
+                if (res.ok) return res.json()
+                throw new Error('Invalid token')
+            })
             .then(data => {
-                if (data.user) {
-                    setUser(data.user)
-                }
+                setUser(data)
             })
             .catch(() => {
                 localStorage.removeItem('auth_token')
@@ -53,16 +54,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const signUp = async (email: string, password: string, metadata?: any) => {
         try {
+            const payload = {
+                email,
+                password,
+                phone_number: metadata?.phone_number || '+234000000000',
+                first_name: metadata?.first_name || 'User',
+                last_name: metadata?.last_name || 'Name',
+                business_name: metadata?.business_name
+            }
+            
             const response = await fetch(`${API_URL}/auth/signup`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ email, password, ...metadata }),
+                body: JSON.stringify(payload),
             })
             const data = await response.json()
             if (!response.ok) {
-                return { error: { message: data.message || 'Signup failed' } }
+                const errorMsg = data.detail || (Array.isArray(data.detail) ? data.detail[0].msg : 'Signup failed')
+                return { error: { message: errorMsg } }
+            }
+            if (data.access_token) {
+                localStorage.setItem('auth_token', data.access_token)
+                // Fetch user profile
+                const userRes = await fetch(`${API_URL}/auth/me`, {
+                    headers: { 'Authorization': `Bearer ${data.access_token}` }
+                })
+                const userData = await userRes.json()
+                setUser(userData)
             }
             return { error: null }
         } catch (error) {
@@ -81,11 +101,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             })
             const data = await response.json()
             if (!response.ok) {
-                return { error: { message: data.message || 'Login failed' } }
+                return { error: { message: data.detail || 'Login failed' } }
             }
-            if (data.token) {
-                localStorage.setItem('auth_token', data.token)
-                setUser(data.user)
+            if (data.access_token) {
+                localStorage.setItem('auth_token', data.access_token)
+                // Fetch user profile
+                const userRes = await fetch(`${API_URL}/auth/me`, {
+                    headers: { 'Authorization': `Bearer ${data.access_token}` }
+                })
+                const userData = await userRes.json()
+                setUser(userData)
             }
             return { error: null }
         } catch (error) {

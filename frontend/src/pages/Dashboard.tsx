@@ -121,7 +121,7 @@ const DashboardContent = () => {
             Icon: FileTextIcon,
             name: "Orders",
             description: loading ? "Loading..." : `${stats.total_orders} total orders, ${stats.pending_orders} pending`,
-            href: "#",
+            href: "/orders",
             cta: "View Orders",
             background: <div className="absolute inset-0 bg-blue-50 opacity-10" />,
             className: "lg:row-start-1 lg:row-end-4 lg:col-start-2 lg:col-end-3",

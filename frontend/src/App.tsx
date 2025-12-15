@@ -5,6 +5,7 @@ import LandingPage from "@/pages/LandingPage";
 import LoginPage from "@/pages/LoginPage";
 import SignUpPage from "@/pages/SignUpPage";
 import Dashboard from "@/pages/Dashboard";
+import OrdersPage from "@/pages/OrdersPage";
 
 function App() {
   return (
@@ -19,6 +20,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/orders"
+            element={
+              <ProtectedRoute>
+                <OrdersPage />
               </ProtectedRoute>
             }
           />

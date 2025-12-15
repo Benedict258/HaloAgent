@@ -8,6 +8,7 @@ from app.api.business_setup import router as business_router
 from app.api.onboarding import router as onboarding_router
 from app.api.debug import router as debug_router
 from app.api.dashboard import router as dashboard_router
+from app.api.orders import router as orders_router
 
 app = FastAPI(
     title="HaloAgent API",
@@ -40,6 +41,7 @@ app.include_router(business_router, prefix="/business", tags=["business-setup"])
 app.include_router(onboarding_router, prefix="/onboarding", tags=["onboarding"])
 app.include_router(debug_router, prefix="/debug", tags=["debug"])
 app.include_router(dashboard_router, prefix="/api", tags=["dashboard"])
+app.include_router(orders_router, prefix="/api", tags=["orders"])
 
 @app.get("/health")
 async def health():
