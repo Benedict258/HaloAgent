@@ -13,16 +13,11 @@ class VoiceService:
     
     async def transcribe_audio(self, audio_url: str, content_type: str = "audio/ogg") -> str:
         """
-        Transcribe audio using AssemblyAI (best codec support for WhatsApp)
-        
-        Args:
-            audio_url: URL to audio file
-            content_type: MIME type
-        
-        Returns:
-            Transcribed text
+        Transcribe audio using AssemblyAI
         """
         try:
+            logger.info(f"Starting transcription for {audio_url}")
+            
             # Download audio
             async with httpx.AsyncClient() as client:
                 audio_response = await client.get(
@@ -33,49 +28,66 @@ class VoiceService:
                 audio_data = audio_response.content
                 logger.info(f"Downloaded: {len(audio_data)} bytes")
             
-            # AssemblyAI (free tier, best codec support)
+            # AssemblyAI
             assembly_key = os.getenv("ASSEMBLYAI_API_KEY")
-            if assembly_key:
-                async with httpx.AsyncClient() as client:
-                    # Upload
-                    upload_response = await client.post(
-                        "https://api.assemblyai.com/v2/upload",
-                        headers={"authorization": assembly_key},
-                        content=audio_data,
-                        timeout=30.0
-                    )
-                    if upload_response.status_code == 200:
-                        upload_url = upload_response.json()["upload_url"]
-                        
-                        # Transcribe
-                        transcript_response = await client.post(
-                            "https://api.assemblyai.com/v2/transcript",
-                            headers={"authorization": assembly_key},
-                            json={"audio_url": upload_url},
-                            timeout=30.0
-                        )
-                        transcript_id = transcript_response.json()["id"]
-                        
-                        # Poll for result
-                        import asyncio
-                        for _ in range(30):
-                            await asyncio.sleep(1)
-                            result_response = await client.get(
-                                f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
-                                headers={"authorization": assembly_key}
-                            )
-                            result = result_response.json()
-                            if result["status"] == "completed":
-                                text = result.get("text", "")
-                                logger.info(f"✅ Transcribed: {text}")
-                                return text
-                            elif result["status"] == "error":
-                                break
+            if not assembly_key:
+                logger.error("No AssemblyAI key")
+                return ""
             
-            return ""
+            logger.info("Uploading to AssemblyAI...")
+            async with httpx.AsyncClient() as client:
+                # Upload
+                upload_response = await client.post(
+                    "https://api.assemblyai.com/v2/upload",
+                    headers={"authorization": assembly_key},
+                    content=audio_data,
+                    timeout=30.0
+                )
+                
+                if upload_response.status_code != 200:
+                    logger.error(f"Upload failed: {upload_response.text}")
+                    return ""
+                
+                upload_url = upload_response.json()["upload_url"]
+                logger.info(f"Uploaded, starting transcription...")
+                
+                # Transcribe
+                transcript_response = await client.post(
+                    "https://api.assemblyai.com/v2/transcript",
+                    headers={"authorization": assembly_key},
+                    json={"audio_url": upload_url},
+                    timeout=30.0
+                )
+                transcript_id = transcript_response.json()["id"]
+                logger.info(f"Transcription started: {transcript_id}")
+                
+                # Poll for result
+                import asyncio
+                for i in range(30):
+                    await asyncio.sleep(1)
+                    result_response = await client.get(
+                        f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
+                        headers={"authorization": assembly_key}
+                    )
+                    result = result_response.json()
+                    status = result["status"]
+                    
+                    if status == "completed":
+                        text = result.get("text", "")
+                        logger.info(f"✅ Transcribed: {text}")
+                        return text
+                    elif status == "error":
+                        logger.error(f"Transcription error: {result.get('error')}")
+                        return ""
+                    
+                    if i % 5 == 0:
+                        logger.info(f"Polling... status={status}")
+                
+                logger.error("Transcription timeout")
+                return ""
                     
         except Exception as e:
-            logger.error(f"Transcription error: {e}")
+            logger.error(f"Transcription error: {e}", exc_info=True)
             return ""
     
     async def text_to_speech(self, text: str, voice: str = "alloy") -> bytes:
