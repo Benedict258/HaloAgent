@@ -3,6 +3,7 @@ Voice service for speech-to-text and text-to-speech
 """
 import httpx
 import os
+import io
 from app.core.config import settings
 import logging
 
@@ -32,16 +33,27 @@ class VoiceService:
                 audio_data = audio_response.content
                 logger.info(f"Downloaded audio: {len(audio_data)} bytes, type: {content_type}")
             
-            # Determine file extension from content type
-            ext_map = {
-                "audio/ogg": "ogg",
-                "audio/mpeg": "mp3",
-                "audio/mp4": "m4a",
-                "audio/amr": "amr",
-                "audio/wav": "wav"
-            }
-            ext = ext_map.get(content_type, "ogg")
-            filename = f"audio.{ext}"
+            # Convert to MP3 for better compatibility
+            try:
+                from pydub import AudioSegment
+                
+                # Load audio from bytes
+                audio = AudioSegment.from_file(io.BytesIO(audio_data))
+                
+                # Export as MP3
+                mp3_buffer = io.BytesIO()
+                audio.export(mp3_buffer, format="mp3")
+                audio_data = mp3_buffer.getvalue()
+                filename = "audio.mp3"
+                content_type = "audio/mpeg"
+                logger.info(f"Converted to MP3: {len(audio_data)} bytes")
+            except ImportError:
+                # Fallback if pydub not available
+                logger.warning("pydub not available, using original format")
+                filename = "audio.ogg"
+            except Exception as e:
+                logger.warning(f"Audio conversion failed: {e}, using original")
+                filename = "audio.ogg"
             
             # Use Groq Whisper API
             async with httpx.AsyncClient() as client:

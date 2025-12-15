@@ -18,6 +18,8 @@ openai>=1.10.0
 
 # Voice (Speech-to-Text & Text-to-Speech)
 # Groq Whisper is free, OpenAI TTS is paid
+pydub==0.25.1
+ffmpeg-python==0.2.0
 
 # Security & Auth
 python-jose[cryptography]==3.3.0
