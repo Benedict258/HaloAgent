@@ -156,9 +156,11 @@ class VoiceService:
         try:
             # Upload to Supabase Storage
             from supabase import create_client
+            import time
+            
             supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
             
-            filename = f"voice_{to_number.replace('+', '')}_{int(os.time.time())}.mp3"
+            filename = f"voice_{to_number.replace('+', '')}_{int(time.time())}.mp3"
             supabase.storage.from_("voice-messages").upload(filename, audio_bytes)
             
             # Get public URL
