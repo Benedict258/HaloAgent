@@ -1,6 +1,8 @@
 import httpx
+import asyncio
 from app.core.config import settings
 from typing import Optional
+import time
 
 class MetaAIService:
     def __init__(self):
@@ -10,10 +12,19 @@ class MetaAIService:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
+        self.last_request_time = 0
+        self.min_request_interval = 6  # 6 seconds between requests
     
     async def chat_completion(self, messages: list, temperature: float = 0.7) -> Optional[str]:
         """Generic chat completion using Llama 3"""
         try:
+            # Rate limiting: wait if needed
+            elapsed = time.time() - self.last_request_time
+            if elapsed < self.min_request_interval:
+                await asyncio.sleep(self.min_request_interval - elapsed)
+            
+            self.last_request_time = time.time()
+            
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.endpoint}/chat/completions",
