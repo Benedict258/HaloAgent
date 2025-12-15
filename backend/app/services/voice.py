@@ -10,12 +10,13 @@ logger = logging.getLogger(__name__)
 
 class VoiceService:
     
-    async def transcribe_audio(self, audio_url: str) -> str:
+    async def transcribe_audio(self, audio_url: str, content_type: str = "audio/ogg") -> str:
         """
         Transcribe audio to text using Whisper API
         
         Args:
             audio_url: URL to audio file (from WhatsApp)
+            content_type: MIME type of audio
         
         Returns:
             Transcribed text
@@ -29,11 +30,22 @@ class VoiceService:
                     timeout=30.0
                 )
                 audio_data = audio_response.content
-                logger.info(f"Downloaded audio: {len(audio_data)} bytes")
+                logger.info(f"Downloaded audio: {len(audio_data)} bytes, type: {content_type}")
+            
+            # Determine file extension from content type
+            ext_map = {
+                "audio/ogg": "ogg",
+                "audio/mpeg": "mp3",
+                "audio/mp4": "m4a",
+                "audio/amr": "amr",
+                "audio/wav": "wav"
+            }
+            ext = ext_map.get(content_type, "ogg")
+            filename = f"audio.{ext}"
             
             # Use Groq Whisper API
             async with httpx.AsyncClient() as client:
-                files = {"file": ("audio.ogg", audio_data, "audio/ogg")}
+                files = {"file": (filename, audio_data, content_type)}
                 data = {"model": "whisper-large-v3"}
                 
                 response = await client.post(

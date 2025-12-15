@@ -106,10 +106,10 @@ async def receive_whatsapp_message(request: Request):
             media_content_type = data.get("MediaContentType0", "")
             if "audio" in media_content_type:
                 media_url = data.get("MediaUrl0", "")
-                logger.info(f"Processing Twilio voice note from {from_number}")
+                logger.info(f"Processing Twilio voice note from {from_number}, type: {media_content_type}")
                 
                 from app.services.voice import voice_service
-                transcribed_text = await voice_service.transcribe_audio(media_url)
+                transcribed_text = await voice_service.transcribe_audio(media_url, media_content_type)
                 
                 if transcribed_text:
                     response_text = await orchestrator.process_message(from_number, transcribed_text, message_id, to_number, channel="twilio")
