@@ -60,7 +60,7 @@ class SupabaseTools:
                 "contact_id": contact_id,
                 "business_id": business_id,
                 "items": items,
-                "total": total,
+                "total_amount": total,
                 "status": "pending_payment",
                 "fulfillment_type": delivery_type,
                 "created_at": datetime.utcnow().isoformat()
