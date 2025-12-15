@@ -23,24 +23,7 @@ class VoiceService:
             Transcribed text
         """
         try:
-            # Try Deepgram first (better codec support, free tier)
-            deepgram_key = os.getenv("DEEPGRAM_API_KEY")
-            if deepgram_key:
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(
-                        "https://api.deepgram.com/v1/listen",
-                        headers={"Authorization": f"Token {deepgram_key}"},
-                        json={"url": audio_url},
-                        timeout=30.0
-                    )
-                    if response.status_code == 200:
-                        result = response.json()
-                        text = result.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0].get("transcript", "")
-                        if text:
-                            logger.info(f"✅ Transcribed (Deepgram): {text}")
-                            return text
-            
-            # Fallback to Groq Whisper
+            # Download audio with Twilio auth
             async with httpx.AsyncClient() as client:
                 audio_response = await client.get(
                     audio_url,
@@ -50,6 +33,29 @@ class VoiceService:
                 audio_data = audio_response.content
                 logger.info(f"Downloaded audio: {len(audio_data)} bytes")
             
+            # Try Deepgram (better codec support)
+            deepgram_key = os.getenv("DEEPGRAM_API_KEY")
+            if deepgram_key:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true",
+                        headers={
+                            "Authorization": f"Token {deepgram_key}",
+                            "Content-Type": "audio/ogg"
+                        },
+                        content=audio_data,
+                        timeout=30.0
+                    )
+                    if response.status_code == 200:
+                        result = response.json()
+                        text = result.get("results", {}).get("channels", [{}])[0].get("alternatives", [{}])[0].get("transcript", "")
+                        if text:
+                            logger.info(f"✅ Transcribed (Deepgram): {text}")
+                            return text
+                    else:
+                        logger.warning(f"Deepgram failed: {response.text}")
+            
+            # Fallback to Groq Whisper
             import aiohttp
             form = aiohttp.FormData()
             form.add_field('file', audio_data, filename='audio.ogg', content_type='application/octet-stream')
