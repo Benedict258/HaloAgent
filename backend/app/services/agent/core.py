@@ -19,13 +19,20 @@ class HaloAgent:
         Run the agent loop - handles tool calls silently and returns natural responses.
         """
         
-        # Check for natural consent phrases
-        consent_phrases = ["sure", "ok", "okay", "sounds good", "go ahead", "yes", "yep", "yeah"]
-        is_consent = any(phrase in message.lower() for phrase in consent_phrases)
+        # Get conversation history from database
+        from app.db.supabase_client import supabase
+        history = supabase.table("message_logs").select("direction, content").eq("contact_id", phone).order("created_at", desc=True).limit(10).execute()
+        
+        # Build conversation context
+        conversation_history = ""
+        if history.data:
+            for msg in reversed(history.data[-6:]):  # Last 3 exchanges
+                role = "Customer" if msg["direction"] == "IN" else "You"
+                conversation_history += f"{role}: {msg['content']}\n"
         
         messages = [
             {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": f"{context}\nUser says: {message}"}
+            {"role": "user", "content": f"{context}\n\nRecent conversation:\n{conversation_history}\nCustomer now says: {message}"}
         ]
 
         for i in range(self.max_iterations):
