@@ -21,12 +21,17 @@ class VoiceService:
             Transcribed text
         """
         try:
-            # Download audio file
+            # Download audio file with Twilio auth
             async with httpx.AsyncClient() as client:
-                audio_response = await client.get(audio_url)
+                audio_response = await client.get(
+                    audio_url,
+                    auth=(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN),
+                    timeout=30.0
+                )
                 audio_data = audio_response.content
+                logger.info(f"Downloaded audio: {len(audio_data)} bytes")
             
-            # Use OpenAI Whisper API (or Groq Whisper)
+            # Use Groq Whisper API
             async with httpx.AsyncClient() as client:
                 files = {"file": ("audio.ogg", audio_data, "audio/ogg")}
                 data = {"model": "whisper-large-v3"}
@@ -42,7 +47,7 @@ class VoiceService:
                 if response.status_code == 200:
                     result = response.json()
                     transcribed_text = result.get("text", "")
-                    logger.info(f"Transcribed: {transcribed_text}")
+                    logger.info(f"✅ Transcribed: {transcribed_text}")
                     return transcribed_text
                 else:
                     logger.error(f"Transcription failed: {response.text}")
