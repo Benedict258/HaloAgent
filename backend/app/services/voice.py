@@ -158,13 +158,16 @@ class VoiceService:
             from supabase import create_client
             import time
             
+            logger.info(f"Uploading {len(audio_bytes)} bytes to Supabase...")
             supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
             
             filename = f"voice_{to_number.replace('+', '')}_{int(time.time())}.mp3"
-            supabase.storage.from_("voice-messages").upload(filename, audio_bytes)
+            upload_result = supabase.storage.from_("voice-messages").upload(filename, audio_bytes)
+            logger.info(f"Upload result: {upload_result}")
             
             # Get public URL
             audio_url = supabase.storage.from_("voice-messages").get_public_url(filename)
+            logger.info(f"Public URL: {audio_url}")
             
             # Send via Twilio
             from twilio.rest import Client
@@ -176,11 +179,11 @@ class VoiceService:
                 media_url=[audio_url]
             )
             
-            logger.info(f"Voice sent: {message.sid}")
+            logger.info(f"✅ Voice sent: {message.sid}")
             return True
             
         except Exception as e:
-            logger.error(f"Twilio voice error: {e}")
+            logger.error(f"Twilio voice error: {e}", exc_info=True)
             return False
     
     async def _send_meta_voice(self, to_number: str, audio_bytes: bytes):

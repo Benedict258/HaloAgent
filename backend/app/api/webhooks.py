@@ -115,10 +115,16 @@ async def receive_whatsapp_message(request: Request):
                     response_text = await orchestrator.process_message(from_number, transcribed_text, message_id, to_number, channel="twilio")
                     if response_text:
                         # Reply with voice
+                        logger.info(f"Generating TTS for: {response_text[:50]}...")
                         audio_bytes = await voice_service.text_to_speech(response_text)
                         if audio_bytes:
-                            await voice_service.send_voice_message(from_number, audio_bytes, "twilio")
+                            logger.info("Sending voice response...")
+                            success = await voice_service.send_voice_message(from_number, audio_bytes, "twilio")
+                            if not success:
+                                logger.warning("Voice send failed, falling back to text")
+                                await send_twilio_message(from_number, response_text)
                         else:
+                            logger.warning("TTS failed, sending text")
                             await send_twilio_message(from_number, response_text)
                 else:
                     await send_twilio_message(from_number, "Sorry, I couldn't understand the voice note. Can you type your message?")
