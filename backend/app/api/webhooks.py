@@ -99,7 +99,26 @@ async def receive_whatsapp_message(request: Request):
         to_number = data.get("To", "").replace("whatsapp:", "")
         body = data.get("Body", "")
         message_id = data.get("MessageSid", "twilio-msg")
+        num_media = int(data.get("NumMedia", 0))
 
+        # Check if it's a voice note
+        if num_media > 0:
+            media_content_type = data.get("MediaContentType0", "")
+            if "audio" in media_content_type:
+                media_url = data.get("MediaUrl0", "")
+                logger.info(f"Processing Twilio voice note from {from_number}")
+                
+                from app.services.voice import voice_service
+                transcribed_text = await voice_service.transcribe_audio(media_url)
+                
+                if transcribed_text:
+                    response_text = await orchestrator.process_message(from_number, transcribed_text, message_id, to_number, channel="twilio")
+                    if response_text:
+                        await send_twilio_message(from_number, response_text)
+                else:
+                    await send_twilio_message(from_number, "Sorry, I couldn't understand the voice note. Can you type your message?")
+                return JSONResponse(content={"status": "ok", "platform": "twilio"})
+        
         if from_number and body:
             logger.info(f"Processing Twilio message from {from_number} to {to_number}: {body}")
             response_text = await orchestrator.process_message(from_number, body, message_id, to_number, channel="twilio")
@@ -138,6 +157,23 @@ async def receive_whatsapp_message(request: Request):
                         to_number = f"+{phone_id}" if not phone_id.startswith("+") else phone_id
                         logger.info(f"Processing Meta message from {from_number} to {to_number}: {text_body}")
                         response_text = await orchestrator.process_message(from_number, text_body, message_id, to_number, channel="meta")
+                    
+                    elif message_type == "audio":
+                        # Handle voice note
+                        audio_id = message.get("audio", {}).get("id")
+                        logger.info(f"Processing voice note from {from_number}: {audio_id}")
+                        
+                        # Download and transcribe
+                        from app.services.voice import voice_service
+                        audio_url = f"https://graph.facebook.com/v18.0/{audio_id}"
+                        transcribed_text = await voice_service.transcribe_audio(audio_url)
+                        
+                        if transcribed_text:
+                            phone_id = value.get("metadata", {}).get("phone_number_id", settings.WHATSAPP_PHONE_NUMBER_ID)
+                            to_number = f"+{phone_id}" if not phone_id.startswith("+") else phone_id
+                            response_text = await orchestrator.process_message(from_number, transcribed_text, message_id, to_number, channel="meta")
+                        else:
+                            response_text = "Sorry, I couldn't understand the voice note. Can you type your message?"
                         
                         if response_text:
                              phone_id = value.get("metadata", {}).get("phone_number_id", settings.WHATSAPP_PHONE_NUMBER_ID)

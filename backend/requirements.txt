@@ -16,6 +16,9 @@ twilio>=8.0.0
 # LLM & AI
 openai>=1.10.0
 
+# Voice (Speech-to-Text & Text-to-Speech)
+# Groq Whisper is free, OpenAI TTS is paid
+
 # Security & Auth
 python-jose[cryptography]==3.3.0
 cryptography==42.0.0
