@@ -21,14 +21,23 @@ class HaloAgent:
         
         # Get conversation history from database
         from app.db.supabase_client import supabase
-        history = supabase.table("message_logs").select("direction, content").eq("contact_id", phone).order("created_at", desc=True).limit(10).execute()
-        
-        # Build conversation context
-        conversation_history = ""
-        if history.data:
-            for msg in reversed(history.data[-6:]):  # Last 3 exchanges
-                role = "Customer" if msg["direction"] == "IN" else "You"
-                conversation_history += f"{role}: {msg['content']}\n"
+        try:
+            # Get contact_id from phone
+            contact = supabase.table("contacts").select("id").eq("phone", phone).single().execute()
+            if contact.data:
+                contact_id = contact.data["id"]
+                history = supabase.table("message_logs").select("direction, content").eq("contact_id", contact_id).order("created_at", desc=True).limit(10).execute()
+                
+                # Build conversation context
+                conversation_history = ""
+                if history.data:
+                    for msg in reversed(history.data[-6:]):  # Last 3 exchanges
+                        role = "Customer" if msg["direction"] == "IN" else "You"
+                        conversation_history += f"{role}: {msg['content']}\n"
+            else:
+                conversation_history = ""
+        except:
+            conversation_history = ""
         
         messages = [
             {"role": "system", "content": self.system_prompt},
