@@ -18,15 +18,26 @@ class VoiceService:
         try:
             logger.info(f"Starting transcription for {audio_url}")
             
-            # Download audio
+            # Download audio with proper Twilio auth
             async with httpx.AsyncClient() as client:
                 audio_response = await client.get(
                     audio_url,
-                    auth=(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN),
+                    auth=httpx.BasicAuth(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN),
+                    follow_redirects=True,
                     timeout=30.0
                 )
+                
+                if audio_response.status_code != 200:
+                    logger.error(f"Download failed: {audio_response.status_code} - {audio_response.text[:200]}")
+                    return ""
+                
                 audio_data = audio_response.content
-                logger.info(f"Downloaded: {len(audio_data)} bytes")
+                logger.info(f"Downloaded: {len(audio_data)} bytes, content-type: {audio_response.headers.get('content-type')}")
+                
+                # Check if we got XML error instead of audio
+                if b'<?xml' in audio_data[:100] or b'<html' in audio_data[:100]:
+                    logger.error(f"Got HTML/XML instead of audio: {audio_data[:200]}")
+                    return ""
             
             # AssemblyAI
             assembly_key = os.getenv("ASSEMBLYAI_API_KEY")
