@@ -2,17 +2,16 @@ import { useState, useEffect } from 'react'
 import { API_URL } from '@/lib/supabase'
 
 interface Order {
-  id: string
+  id: number
   contact_id: number
-  product_name: string
-  quantity: number
+  items: any[]
   total_amount: number
   status: string
   created_at: string
   payment_receipt_url?: string
   contacts: {
     name: string
-    phone: string
+    phone_number: string
   }
 }
 
@@ -117,7 +116,7 @@ export default function OrdersPage() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="font-semibold text-black">Order #{order.id.slice(0, 8)}</h3>
+                      <h3 className="font-semibold text-black">Order #{order.id}</h3>
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
                         {order.status.replace('_', ' ')}
                       </span>
@@ -127,12 +126,14 @@ export default function OrdersPage() {
                       <div>
                         <p className="text-gray-600">Customer</p>
                         <p className="font-medium text-black">{order.contacts?.name || 'Unknown'}</p>
-                        <p className="text-gray-500">{order.contacts?.phone}</p>
+                        <p className="text-gray-500">{order.contacts?.phone_number}</p>
                       </div>
                       <div>
-                        <p className="text-gray-600">Product</p>
-                        <p className="font-medium text-black">{order.product_name}</p>
-                        <p className="text-gray-500">Qty: {order.quantity}</p>
+                        <p className="text-gray-600">Items</p>
+                        <p className="font-medium text-black">
+                          {Array.isArray(order.items) ? order.items.map((item: any) => item.name).join(', ') : 'N/A'}
+                        </p>
+                        <p className="text-gray-500">Qty: {Array.isArray(order.items) ? order.items.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0) : 0}</p>
                       </div>
                       <div>
                         <p className="text-gray-600">Amount</p>

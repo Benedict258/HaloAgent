@@ -26,11 +26,19 @@ async def get_orders(business_id: str = "sweetcrumbs_001", status: str = None):
         # Manually fetch contact info for each order
         orders = result.data or []
         for order in orders:
+            # Parse items if it's a string
+            if isinstance(order.get('items'), str):
+                import json
+                try:
+                    order['items'] = json.loads(order['items'])
+                except:
+                    order['items'] = []
+            
             if order.get('contact_id'):
                 contact = supabase.table("contacts").select("name, phone_number").eq("id", order['contact_id']).single().execute()
-                order['contacts'] = contact.data if contact.data else {"name": "Unknown", "phone": "N/A"}
+                order['contacts'] = contact.data if contact.data else {"name": "Unknown", "phone_number": "N/A"}
             else:
-                order['contacts'] = {"name": "Unknown", "phone": "N/A"}
+                order['contacts'] = {"name": "Unknown", "phone_number": "N/A"}
         
         return orders
     except Exception as e:
