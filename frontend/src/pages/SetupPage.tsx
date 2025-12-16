@@ -36,6 +36,63 @@ interface BusinessResult {
     message: string;
 }
 
+interface MetaIntegration {
+    enabled: boolean;
+    phone_number_id: string;
+    business_account_id: string;
+    verify_token: string;
+}
+
+interface TwilioIntegration {
+    enabled: boolean;
+    from_number: string;
+    webhook_url: string;
+    account_sid: string;
+}
+
+interface WebIntegration {
+    enabled: boolean;
+    subdomain: string;
+    widget_url: string;
+}
+
+interface IntegrationsState {
+    meta: MetaIntegration;
+    twilio: TwilioIntegration;
+    web: WebIntegration;
+}
+
+const DEFAULT_INTEGRATIONS: IntegrationsState = {
+    meta: {
+        enabled: false,
+        phone_number_id: "",
+        business_account_id: "",
+        verify_token: "",
+    },
+    twilio: {
+        enabled: false,
+        from_number: "",
+        webhook_url: "",
+        account_sid: "",
+    },
+    web: {
+        enabled: true,
+        subdomain: "",
+        widget_url: "",
+    },
+};
+
+const cloneIntegrations = (): IntegrationsState => JSON.parse(JSON.stringify(DEFAULT_INTEGRATIONS));
+
+const mergeIntegrations = (current: IntegrationsState, saved?: Partial<IntegrationsState> | null): IntegrationsState => {
+    if (!saved) return current;
+    return {
+        meta: { ...current.meta, ...(saved.meta || {}) },
+        twilio: { ...current.twilio, ...(saved.twilio || {}) },
+        web: { ...current.web, ...(saved.web || {}) },
+    };
+};
+
 interface FormState {
     business_name: string;
     description: string;
@@ -47,6 +104,7 @@ interface FormState {
     instagram: string;
     sample_messages: string[];
     business_hours: HoursMap;
+    integrations: IntegrationsState;
 }
 
 function SetupPage() {
@@ -62,6 +120,7 @@ function SetupPage() {
         instagram: "",
         sample_messages: ["Tell me what cakes you have", "Can I get delivery today?"],
         business_hours: cloneDefaultHours(),
+        integrations: cloneIntegrations(),
     });
     const [loadingProfile, setLoadingProfile] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -105,7 +164,11 @@ function SetupPage() {
                     tone: data.brand_voice || prev.tone,
                     website: data.settings?.website || prev.website,
                     instagram: data.settings?.instagram || prev.instagram,
+                    sample_messages: Array.isArray(data.settings?.sample_messages) && data.settings.sample_messages.length
+                        ? data.settings.sample_messages
+                        : prev.sample_messages,
                     business_hours: data.business_hours || prev.business_hours,
+                    integrations: mergeIntegrations(prev.integrations, data.integration_preferences?.channels || null),
                 }));
             } catch (err) {
                 console.error(err);
@@ -153,6 +216,32 @@ function SetupPage() {
 
     const addSample = () => {
         setFormState((prev) => ({ ...prev, sample_messages: [...prev.sample_messages, ""] }));
+    };
+
+    const toggleIntegrationChannel = (channel: keyof IntegrationsState) => {
+        setFormState((prev) => ({
+            ...prev,
+            integrations: {
+                ...prev.integrations,
+                [channel]: {
+                    ...prev.integrations[channel],
+                    enabled: !prev.integrations[channel].enabled,
+                },
+            },
+        }));
+    };
+
+    const handleIntegrationField = (channel: keyof IntegrationsState, field: string, value: string) => {
+        setFormState((prev) => ({
+            ...prev,
+            integrations: {
+                ...prev.integrations,
+                [channel]: {
+                    ...prev.integrations[channel],
+                    [field]: value,
+                },
+            },
+        }));
     };
 
     const handleSubmit = async (event: React.FormEvent) => {
@@ -274,6 +363,156 @@ function SetupPage() {
                             <p className="text-sm text-gray-700">{body}</p>
                         </div>
                     ))}
+                </section>
+
+                <section className="mt-12 rounded-3xl border border-gray-100 bg-white p-8 shadow-sm">
+                    <div className="mb-6 space-y-2">
+                        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-gray-500">Integration validation</p>
+                        <h2 className="text-2xl font-bold text-black">Confirm channel credentials</h2>
+                        <p className="text-gray-600">Store sandbox or production credentials here so HaloAgent can keep replies branded and route traffic through the right number.</p>
+                    </div>
+                    <div className="grid gap-6 md:grid-cols-3">
+                        <div className="rounded-2xl border border-gray-100 p-5">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold text-black">WhatsApp (Meta)</p>
+                                    <p className="text-xs text-gray-500">Official Business API</p>
+                                </div>
+                                <label className="flex items-center gap-2 text-xs font-semibold text-gray-600">
+                                    <input
+                                        type="checkbox"
+                                        checked={formState.integrations.meta.enabled}
+                                        onChange={() => toggleIntegrationChannel("meta")}
+                                    />
+                                    Enabled
+                                </label>
+                            </div>
+                            <div className="mt-4 space-y-3 text-sm">
+                                <div>
+                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Phone number ID</label>
+                                    <input
+                                        type="text"
+                                        value={formState.integrations.meta.phone_number_id}
+                                        onChange={(e) => handleIntegrationField("meta", "phone_number_id", e.target.value)}
+                                        disabled={!formState.integrations.meta.enabled}
+                                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Business account ID</label>
+                                    <input
+                                        type="text"
+                                        value={formState.integrations.meta.business_account_id}
+                                        onChange={(e) => handleIntegrationField("meta", "business_account_id", e.target.value)}
+                                        disabled={!formState.integrations.meta.enabled}
+                                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Verify token</label>
+                                    <input
+                                        type="text"
+                                        value={formState.integrations.meta.verify_token}
+                                        onChange={(e) => handleIntegrationField("meta", "verify_token", e.target.value)}
+                                        disabled={!formState.integrations.meta.enabled}
+                                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-gray-100 p-5">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold text-black">Twilio</p>
+                                    <p className="text-xs text-gray-500">WhatsApp sandbox / production</p>
+                                </div>
+                                <label className="flex items-center gap-2 text-xs font-semibold text-gray-600">
+                                    <input
+                                        type="checkbox"
+                                        checked={formState.integrations.twilio.enabled}
+                                        onChange={() => toggleIntegrationChannel("twilio")}
+                                    />
+                                    Enabled
+                                </label>
+                            </div>
+                            <div className="mt-4 space-y-3 text-sm">
+                                <div>
+                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">From number</label>
+                                    <input
+                                        type="text"
+                                        value={formState.integrations.twilio.from_number}
+                                        onChange={(e) => handleIntegrationField("twilio", "from_number", e.target.value)}
+                                        disabled={!formState.integrations.twilio.enabled}
+                                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+                                        placeholder="whatsapp:+1415XXXXXXX"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Webhook URL</label>
+                                    <input
+                                        type="url"
+                                        value={formState.integrations.twilio.webhook_url}
+                                        onChange={(e) => handleIntegrationField("twilio", "webhook_url", e.target.value)}
+                                        disabled={!formState.integrations.twilio.enabled}
+                                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+                                        placeholder="https://example.com/webhooks/twilio"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Account SID</label>
+                                    <input
+                                        type="text"
+                                        value={formState.integrations.twilio.account_sid}
+                                        onChange={(e) => handleIntegrationField("twilio", "account_sid", e.target.value)}
+                                        disabled={!formState.integrations.twilio.enabled}
+                                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-gray-100 p-5">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold text-black">Halo web chat</p>
+                                    <p className="text-xs text-gray-500">Embedded widget</p>
+                                </div>
+                                <label className="flex items-center gap-2 text-xs font-semibold text-gray-600">
+                                    <input
+                                        type="checkbox"
+                                        checked={formState.integrations.web.enabled}
+                                        onChange={() => toggleIntegrationChannel("web")}
+                                    />
+                                    Enabled
+                                </label>
+                            </div>
+                            <div className="mt-4 space-y-3 text-sm">
+                                <div>
+                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Subdomain</label>
+                                    <input
+                                        type="text"
+                                        value={formState.integrations.web.subdomain}
+                                        onChange={(e) => handleIntegrationField("web", "subdomain", e.target.value)}
+                                        disabled={!formState.integrations.web.enabled}
+                                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+                                        placeholder="shop-name"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Widget URL</label>
+                                    <input
+                                        type="url"
+                                        value={formState.integrations.web.widget_url}
+                                        onChange={(e) => handleIntegrationField("web", "widget_url", e.target.value)}
+                                        disabled={!formState.integrations.web.enabled}
+                                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+                                        placeholder="https://chat.haloagent.com/embed/your-shop"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </section>
 
                 <section id="business-profile-form" className="mt-12 rounded-3xl border border-gray-100 bg-white p-8 shadow-sm">

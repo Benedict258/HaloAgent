@@ -108,9 +108,26 @@ class AgentTools:
         """Get contact from database"""
         return await supabase_tools.get_contact(phone, business_id)
     
-    async def db_create_order(self, phone: str, business_id: str, items: List[dict], total: float, delivery_type: str = "pickup") -> str:
+    async def db_create_order(
+        self,
+        phone: str,
+        business_id: str,
+        items: List[dict],
+        total: float,
+        delivery_type: str = "pickup",
+        delivery_address: str = None,
+        channel: str = "whatsapp"
+    ) -> str:
         """Create order in database"""
-        return await supabase_tools.create_order(phone, business_id, items, total, delivery_type)
+        return await supabase_tools.create_order(
+            phone,
+            business_id,
+            items,
+            total,
+            delivery_type,
+            delivery_address,
+            channel
+        )
     
     async def db_get_orders(self, phone: str, business_id: str) -> str:
         """Get customer orders from database"""
@@ -254,7 +271,9 @@ class AgentTools:
                         "business_id": {"type": "string"},
                         "items": {"type": "array"},
                         "total": {"type": "number"},
-                        "delivery_type": {"type": "string"}
+                        "delivery_type": {"type": "string"},
+                        "delivery_address": {"type": "string"},
+                        "channel": {"type": "string"}
                     },
                     "required": ["phone", "business_id", "items", "total"]
                 }

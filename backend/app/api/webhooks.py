@@ -1,8 +1,15 @@
 from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import JSONResponse
+from datetime import datetime
 import logging
+from typing import Optional
 from app.core.config import settings
+from app.db.supabase_client import supabase
+from app.services.business import business_service
+from app.services.contact import contact_service
 from app.services.orchestrator import orchestrator
+from app.services.payments import payment_service
+from app.services.vision import vision_service
 from app.services.whatsapp import whatsapp_service
 # Note: We need a way to send back to Twilio. The previously implemented `send_twilio_message` is good.
 # I will integrate it here or assume Orchestrator handles it if I reverted?
@@ -118,6 +125,20 @@ async def receive_whatsapp_message(request: Request):
                 else:
                     await send_twilio_message(from_number, "Sorry, I couldn't understand the voice note. Can you type your message?")
                 return JSONResponse(content={"status": "ok", "platform": "twilio"})
+            elif "image" in media_content_type:
+                media_url = data.get("MediaUrl0", "")
+                logger.info(f"Processing Twilio image from {from_number}, type: {media_content_type}")
+                image_result = await _handle_image_attachment(
+                    from_number=from_number,
+                    to_number=to_number,
+                    media_url=media_url,
+                    message_id=message_id,
+                    body=body,
+                    channel="twilio"
+                )
+                if image_result and image_result.get("response_text"):
+                    await send_twilio_message(from_number, image_result["response_text"])
+                return JSONResponse(content={"status": "ok", "platform": "twilio"})
         
         if from_number and body:
             logger.info(f"Processing Twilio message from {from_number} to {to_number}: {body}")
@@ -157,6 +178,8 @@ async def receive_whatsapp_message(request: Request):
                         to_number = f"+{phone_id}" if not phone_id.startswith("+") else phone_id
                         logger.info(f"Processing Meta message from {from_number} to {to_number}: {text_body}")
                         response_text = await orchestrator.process_message(from_number, text_body, message_id, to_number, channel="meta")
+                        if response_text:
+                            await send_meta_message(from_number, response_text, phone_id)
                     
                     elif message_type == "audio":
                         # Handle voice note
@@ -179,8 +202,190 @@ async def receive_whatsapp_message(request: Request):
                             response_text = "Sorry, I couldn't understand the voice note. Can you type your message?"
                             phone_id = value.get("metadata", {}).get("phone_number_id", settings.WHATSAPP_PHONE_NUMBER_ID)
                             await send_meta_message(from_number, response_text, phone_id)
+                    elif message_type == "image":
+                        phone_id = value.get("metadata", {}).get("phone_number_id", settings.WHATSAPP_PHONE_NUMBER_ID)
+                        image_id = message.get("image", {}).get("id")
+                        caption = message.get("image", {}).get("caption") or message.get("text", {}).get("body", "")
+                        if image_id:
+                            media_url = f"https://graph.facebook.com/v18.0/{image_id}"
+                            logger.info(f"Processing Meta image from {from_number}: {image_id}")
+                            image_result = await _handle_image_attachment(
+                                from_number=from_number,
+                                to_number=None,
+                                media_url=media_url,
+                                message_id=message_id,
+                                body=caption,
+                                channel="meta",
+                                phone_id=phone_id
+                            )
+                            if image_result and image_result.get("response_text"):
+                                await send_meta_message(from_number, image_result["response_text"], phone_id)
 
     return JSONResponse(content={"status": "ok", "platform": "meta"})
+
+# -------------------------------
+# Media + Vision helpers
+# -------------------------------
+
+async def _handle_image_attachment(
+    *,
+    from_number: str,
+    to_number: Optional[str],
+    media_url: str,
+    message_id: str,
+    body: Optional[str],
+    channel: str,
+    phone_id: Optional[str] = None,
+) -> Optional[dict]:
+    context = await _resolve_business_context(from_number, to_number=to_number, phone_id=phone_id)
+    if not context:
+        logger.warning("Unable to resolve business context for image from %s", from_number)
+        return None
+
+    business = context["business"] or {}
+    business_id = context["business_id"]
+    contact = context["contact"]
+    if not contact or not contact.get("id"):
+        logger.warning("No contact record for %s", from_number)
+        return None
+
+    contact_id = contact["id"]
+    pending_order = _fetch_latest_pending_order(contact_id)
+    resolved_to_number = to_number
+    if not resolved_to_number and phone_id:
+        resolved_to_number = phone_id if phone_id.startswith("+") else f"+{phone_id}"
+
+    agent_message = (body or "").strip()
+    if pending_order:
+        receipt_analysis = await vision_service.analyze_receipt(
+            business_id=business_id,
+            contact_id=contact_id,
+            order_id=pending_order["id"],
+            media_url=media_url,
+        )
+        update = await payment_service.mark_payment_pending_review(
+            business_id=business_id,
+            contact_phone=from_number,
+            order_id=pending_order["id"],
+            receipt_url=media_url,
+            note=f"Receipt uploaded via {channel}",
+            receipt_analysis=receipt_analysis,
+        )
+        try:
+            supabase.table("orders").update({
+                "payment_receipt_analysis": receipt_analysis,
+                "payment_receipt_uploaded_at": datetime.utcnow().isoformat(),
+            }).eq("id", pending_order["id"]).execute()
+        except Exception as update_err:
+            logger.warning("Failed to persist receipt analysis for order %s: %s", pending_order["id"], update_err)
+        if not agent_message:
+            agent_message = "Shared my payment receipt."
+        reference = update.get("payment_reference") if update else None
+        if reference:
+            agent_message += f"\n[receipt_reference {reference}]"
+    else:
+        inventory = business.get("inventory") or []
+        product_analysis = await vision_service.analyze_product_photo(
+            business_id=business_id,
+            contact_id=contact_id,
+            media_url=media_url,
+            inventory=inventory,
+        )
+        if not agent_message:
+            agent_message = "Here is a product photo for what I'm considering."
+        top_match = product_analysis.get("top_match")
+        if top_match and top_match.get("name"):
+            agent_message += (
+                f"\n[vision_product_match name={top_match['name']} confidence={top_match.get('confidence')}]"
+            )
+
+    if not resolved_to_number:
+        logger.warning("Cannot route agent reply without destination number for %s", from_number)
+        return None
+
+    response_text = await orchestrator.process_message(
+        from_number,
+        agent_message,
+        message_id,
+        resolved_to_number,
+        channel="whatsapp" if channel == "meta" else channel,
+    )
+    return {"response_text": response_text}
+
+
+async def _resolve_business_context(
+    from_number: str,
+    *,
+    to_number: Optional[str],
+    phone_id: Optional[str] = None,
+) -> Optional[dict]:
+    business = None
+    business_id = None
+    if to_number:
+        business = await business_service.get_business_by_whatsapp(to_number)
+        if business:
+            business_id = business.get("business_id")
+
+    if not business_id:
+        contact_lookup = (
+            supabase
+            .table("contacts")
+            .select("id, business_id")
+            .eq("phone_number", from_number)
+            .order("updated_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if contact_lookup.data:
+            contact_row = contact_lookup.data[0]
+            business_id = contact_row.get("business_id")
+            if business_id:
+                business = await business_service.get_business_by_id(business_id)
+            contact = contact_row
+        else:
+            contact = None
+    else:
+        contact = None
+
+    if not business_id and phone_id:
+        # Fallback to default mapping using configured phone id
+        business = await business_service.get_business_by_whatsapp(phone_id)
+        if business:
+            business_id = business.get("business_id")
+
+    if not business_id:
+        return None
+
+    if not contact:
+        contact = await contact_service.get_or_create_contact(from_number, business_id)
+    elif not contact.get("id"):
+        contact = await contact_service.get_or_create_contact(from_number, business_id)
+
+    return {
+        "business": business,
+        "business_id": business_id,
+        "contact": contact,
+    }
+
+
+def _fetch_latest_pending_order(contact_id: int) -> Optional[dict]:
+    try:
+        result = (
+            supabase
+            .table("orders")
+            .select("id, order_number, status, payment_reference")
+            .eq("contact_id", contact_id)
+            .order("created_at", desc=True)
+            .limit(5)
+            .execute()
+        )
+        allowed = {"pending_payment", "payment_pending_review", "awaiting_confirmation"}
+        for row in result.data or []:
+            if row.get("status") in allowed:
+                return row
+    except Exception as exc:
+        logger.error("Failed to fetch pending order: %s", exc)
+    return None
 
 # -------------------------------
 # Helper Senders (Restored for completeness)

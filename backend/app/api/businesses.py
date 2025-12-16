@@ -36,6 +36,7 @@ class BusinessProfileInput(BaseModel):
     website: Optional[str] = Field(None, max_length=200)
     instagram: Optional[str] = Field(None, max_length=200)
     sample_messages: List[str] = Field(default_factory=list)
+    integrations: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
 def _slugify(value: str) -> str:
@@ -71,6 +72,12 @@ async def save_business_profile(payload: BusinessProfileInput, current_user: dic
         "sample_messages": [msg for msg in payload.sample_messages if msg.strip()],
     }
 
+    integration_preferences = {
+        "website": payload.website,
+        "instagram": payload.instagram,
+        "channels": payload.integrations or {}
+    }
+
     business_record = {
         "business_id": business_id,
         "business_name": payload.business_name,
@@ -81,10 +88,7 @@ async def save_business_profile(payload: BusinessProfileInput, current_user: dic
         "business_hours": payload.business_hours.dict() if payload.business_hours else None,
         "brand_voice": payload.tone,
         "settings": profile_settings,
-        "integration_preferences": {
-            "website": payload.website,
-            "instagram": payload.instagram,
-        },
+        "integration_preferences": integration_preferences,
         "webhook_url": WEBHOOK_URL,
     }
 

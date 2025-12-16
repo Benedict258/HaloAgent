@@ -102,13 +102,14 @@ async def get_contact_notifications(phone: str = Query(...), business_id: str = 
 
         status_copy = {
             "pending_payment": "We're waiting for payment so we can start your order.",
-            "awaiting_confirmation": "Thanks for paying! The team is confirming your transfer.",
+            "payment_pending_review": "Thanks for paying! The team is confirming your transfer.",
             "paid": "Payment confirmed. We're about to start prepping your order.",
             "preparing": "Your order is being prepared right now.",
             "ready_for_pickup": "Your order is ready for pickup!",
             "out_for_delivery": "Your order is on the way!",
             "completed": "Thanks again! Your order is complete.",
             "cancelled": "This order was cancelled. Reach out if that's unexpected.",
+            "awaiting_confirmation": "Thanks for paying! The team is confirming your transfer.",
         }
 
         notifications = []

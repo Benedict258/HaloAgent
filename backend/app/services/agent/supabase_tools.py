@@ -6,6 +6,7 @@ from app.db.supabase_client import supabase
 from datetime import datetime
 import json
 import logging
+import secrets
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,16 @@ class SupabaseTools:
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)})
     
-    async def create_order(self, phone: str, business_id: str, items: list, total: float, delivery_type: str = "pickup") -> str:
+    async def create_order(
+        self,
+        phone: str,
+        business_id: str,
+        items: list,
+        total: float,
+        delivery_type: str = "pickup",
+        delivery_address: str = None,
+        channel: str = "whatsapp"
+    ) -> str:
         """Create order in Supabase"""
         try:
             # Get contact first
@@ -56,9 +66,10 @@ class SupabaseTools:
             
             contact_id = contact_result.data[0]["id"]
             
-            # Generate order number
+            # Generate order number and payment reference
             import random
             order_number = f"ORD-{random.randint(1000, 9999)}"
+            payment_reference = self._generate_payment_reference(order_number)
             
             order_data = {
                 "contact_id": contact_id,
@@ -68,7 +79,9 @@ class SupabaseTools:
                 "total_amount": total,
                 "status": "pending_payment",
                 "fulfillment_type": delivery_type,
-                "channel": "whatsapp",
+                "delivery_address": delivery_address if delivery_type == "delivery" else None,
+                "channel": channel,
+                "payment_reference": payment_reference,
                 "created_at": datetime.utcnow().isoformat()
             }
             
@@ -83,11 +96,18 @@ class SupabaseTools:
                 "status": "success",
                 "message": "Order created",
                 "order_id": result.data[0]["id"] if result.data else None,
+                "order_number": order_number,
+                "payment_reference": payment_reference,
                 "total": total
             })
         except Exception as e:
             logger.error(f"Error creating order: {e}")
             return json.dumps({"status": "error", "message": str(e)})
+
+    def _generate_payment_reference(self, order_number: str) -> str:
+        suffix = secrets.token_hex(2).upper()
+        base = order_number.replace("-", "")[-4:]
+        return f"REF-{base}{suffix}"
     
     async def get_orders(self, phone: str, business_id: str, limit: int = 5) -> str:
         """Get customer's recent orders"""

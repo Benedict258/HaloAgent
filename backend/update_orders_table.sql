@@ -4,6 +4,11 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_instructions_sent BOOLEAN DE
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_receipt_url TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_confirmed_at TIMESTAMP;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_notes TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_reference VARCHAR(50);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_reference_generated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_receipt_uploaded_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_receipt_analysis JSONB;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_payment_reference ON orders(payment_reference) WHERE payment_reference IS NOT NULL;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS ready_at TIMESTAMP;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_address TEXT;

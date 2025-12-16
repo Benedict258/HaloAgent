@@ -26,6 +26,7 @@ interface UserNotificationsPanelProps {
 const statusStyles: Record<string, string> = {
   pending_payment: "bg-amber-50 border-amber-100 text-amber-700",
   awaiting_confirmation: "bg-sky-50 border-sky-100 text-sky-700",
+  payment_pending_review: "bg-sky-50 border-sky-100 text-sky-700",
   paid: "bg-emerald-50 border-emerald-100 text-emerald-700",
   preparing: "bg-purple-50 border-purple-100 text-purple-700",
   ready_for_pickup: "bg-indigo-50 border-indigo-100 text-indigo-700",
