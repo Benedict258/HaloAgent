@@ -16,7 +16,8 @@ class ConversationState:
             "product_name": None,
             "price": None,
             "quantity": 1,
-            "fulfillment_type": None
+            "fulfillment_type": None,
+            "delivery_address": None
         }
         self.order_intent_confirmed = False
         self.last_intent = None
@@ -37,17 +38,25 @@ class ConversationState:
             "favorite_items": [],
             "last_order": None,
             "preferred_fulfillment": None,
+            "last_delivery_address": None,
         }
         self.order_history: List[Dict[str, Any]] = []
         self.contact_id: Optional[int] = None
         self.last_profile_refresh: Optional[datetime] = None
+        self.brand_voice: Optional[str] = None
+        self.brand_description: Optional[str] = None
+        self.brand_links: Dict[str, Any] = {}
+        self.integration_channels: Dict[str, Any] = {}
+        self.last_normalized_message: Optional[str] = None
+        self.last_escalation_signature: Optional[str] = None
 
     def reset_pending_order(self):
         self.pending_order = {
             "product_name": None,
             "price": None,
             "quantity": 1,
-            "fulfillment_type": None
+            "fulfillment_type": None,
+            "delivery_address": None
         }
         self.order_intent_confirmed = False
 
@@ -66,25 +75,61 @@ class ConversationState:
         if business_name:
             self.business_name = business_name
 
+    def update_brand_profile(self, business_data: Optional[Dict[str, Any]]):
+        if not business_data:
+            return
+        self.brand_voice = business_data.get("brand_voice") or business_data.get("settings", {}).get("tone") or self.brand_voice
+        self.brand_description = business_data.get("description") or self.brand_description
+        self.brand_links = business_data.get("settings") or self.brand_links
+        integration_prefs = business_data.get("integration_preferences") or {}
+        channels = integration_prefs.get("channels") if isinstance(integration_prefs, dict) else {}
+        self.integration_channels = channels or self.integration_channels
+
     def set_contact(self, contact_id: Optional[int]):
         if contact_id:
             self.contact_id = contact_id
 
-    def extract_from_history(self, history: str, inventory: List[Dict[str, Any]]):
-        """Extract order details from conversation history."""
-        history_lower = history.lower()
+    def remember_customer_message(self, normalized_text: Optional[str]):
+        if normalized_text:
+            self.last_normalized_message = normalized_text
 
-        for product in inventory or []:
-            name = (product.get("name") or "").lower()
-            if name and name in history_lower:
-                self.pending_order["product_name"] = product.get("name")
-                self.pending_order["price"] = self._normalize_price(product.get("price"))
-                break
+    def extract_from_history(self, history: str, latest_message: Optional[str], inventory: List[Dict[str, Any]]):
+        """Extract order cues from conversation history and latest message."""
 
-        if "pickup" in history_lower:
-            self.pending_order["fulfillment_type"] = "pickup"
-        elif "delivery" in history_lower or "deliver" in history_lower:
-            self.pending_order["fulfillment_type"] = "delivery"
+        def _update_from_text(text: Optional[str], original_text: Optional[str], allow_override: bool):
+            if not text:
+                return
+            for product in inventory or []:
+                name = (product.get("name") or "").lower()
+                if not name:
+                    continue
+                if name in text:
+                    if allow_override or not self.pending_order["product_name"]:
+                        self.pending_order["product_name"] = product.get("name")
+                        self.pending_order["price"] = self._normalize_price(product.get("price"))
+                    break
+
+            pickup_keywords = ["pickup", "pick up", "pick-up", "collect", "collection"]
+            delivery_keywords = ["deliver", "delivery", "deliveries", "drop off", "ship"]
+
+            if any(word in text for word in pickup_keywords):
+                if allow_override or not self.pending_order["fulfillment_type"]:
+                    self.pending_order["fulfillment_type"] = "pickup"
+                    self.pending_order["delivery_address"] = None
+            elif any(word in text for word in delivery_keywords):
+                if allow_override or not self.pending_order["fulfillment_type"]:
+                    self.pending_order["fulfillment_type"] = "delivery"
+                if not self.pending_order["delivery_address"]:
+                    address = self._extract_delivery_address_from_message(original_text)
+                    if address:
+                        self.pending_order["delivery_address"] = address
+
+        if latest_message:
+            _update_from_text(latest_message.lower(), latest_message, True)
+
+        if history:
+            history_lower = history.lower()
+            _update_from_text(history_lower, history, False)
 
     def _normalize_price(self, price: Any) -> Optional[float]:
         if price is None:
@@ -94,6 +139,36 @@ class ConversationState:
         if isinstance(price, str):
             digits = price.replace("₦", "").replace(",", "").strip()
             return float(digits) if digits.isdigit() else None
+        return None
+
+    def _extract_delivery_address_from_message(self, message: Optional[str]) -> Optional[str]:
+        if not message:
+            return None
+        original = message.strip()
+        if not original:
+            return None
+        lowered = original.lower()
+        cues = [
+            "deliver to",
+            "delivery to",
+            "send to",
+            "ship to",
+            "address is",
+            "deliver at",
+            "drop at"
+        ]
+        for cue in cues:
+            if cue in lowered:
+                start = lowered.find(cue) + len(cue)
+                candidate = original[start:].strip(" .,:;\n\t")
+                if candidate:
+                    return candidate[:200]
+        keywords = [
+            "street", "st", "road", "rd", "avenue", "ave", "estate", "close",
+            "phase", "way", "lane", "block", "apartment", "house", "junction"
+        ]
+        if any(kw in lowered for kw in keywords) and any(ch.isdigit() for ch in lowered):
+            return original[:200]
         return None
 
     def update_profile(self, contact_data: Dict[str, Any], orders: List[Dict[str, Any]]):
@@ -110,6 +185,7 @@ class ConversationState:
             self.order_history = []
             self.profile["favorite_items"] = []
             self.profile["last_order"] = None
+            self.profile["last_delivery_address"] = None
             return
 
         normalized_orders: List[Dict[str, Any]] = []
@@ -135,6 +211,7 @@ class ConversationState:
                 "status": order.get("status"),
                 "created_at": order.get("created_at"),
                 "fulfillment_type": order.get("fulfillment_type"),
+                "delivery_address": order.get("delivery_address"),
                 "items": simplified_items,
                 "total_amount": order.get("total_amount"),
             })
@@ -143,14 +220,26 @@ class ConversationState:
         self.profile["last_order"] = normalized_orders[0] if normalized_orders else None
         if normalized_orders and normalized_orders[0].get("fulfillment_type"):
             self.profile["preferred_fulfillment"] = normalized_orders[0].get("fulfillment_type")
+        latest_delivery = next(
+            (
+                row.get("delivery_address")
+                for row in normalized_orders
+                if row.get("fulfillment_type") == "delivery" and row.get("delivery_address")
+            ),
+            None,
+        )
+        self.profile["last_delivery_address"] = latest_delivery
         self.profile["favorite_items"] = [name for name, _ in favorites.most_common(3)]
 
     def has_all_order_details(self) -> bool:
-        return all([
+        required = [
             self.pending_order["product_name"],
             self.pending_order["price"],
             self.pending_order["fulfillment_type"]
-        ])
+        ]
+        if self.pending_order["fulfillment_type"] == "delivery":
+            return all(required) and bool(self.pending_order["delivery_address"])
+        return all(required)
 
     def get_missing_field(self) -> Optional[str]:
         if not self.pending_order["product_name"]:
@@ -159,6 +248,8 @@ class ConversationState:
             return "fulfillment"
         if not self.pending_order["price"]:
             return "price"
+        if self.pending_order["fulfillment_type"] == "delivery" and not self.pending_order["delivery_address"]:
+            return "address"
         return None
 
     def build_profile_context(self) -> str:
@@ -181,6 +272,8 @@ class ConversationState:
             parts.append(
                 f"Last Order: {items_text} via {last.get('fulfillment_type') or 'unspecified'} on {last.get('created_at')}"
             )
+        if self.profile.get("last_delivery_address"):
+            parts.append(f"Last Delivery Address: {self.profile['last_delivery_address']}")
         if self.pending_order["product_name"]:
             missing = self.get_missing_field()
             pending_text = f"Pending order for {self.pending_order['product_name']}"
@@ -188,6 +281,30 @@ class ConversationState:
                 pending_text += f" (need {missing})"
             parts.append(pending_text)
         return "\n".join(parts) or "No prior memory recorded."
+
+    def build_brand_context(self) -> str:
+        details: List[str] = []
+        if self.brand_description:
+            details.append(f"Brand description: {self.brand_description}")
+        if self.brand_voice:
+            details.append(f"Tone guidance: {self.brand_voice}")
+        if self.brand_links:
+            website = self.brand_links.get("website")
+            instagram = self.brand_links.get("instagram")
+            if website:
+                details.append(f"Website: {website}")
+            if instagram:
+                details.append(f"Instagram: {instagram}")
+        if self.integration_channels:
+            channel_summaries = []
+            for key, value in self.integration_channels.items():
+                if not isinstance(value, dict):
+                    continue
+                status = "connected" if value.get("enabled") else "disabled"
+                channel_summaries.append(f"{key}: {status}")
+            if channel_summaries:
+                details.append("Integration status: " + ", ".join(channel_summaries))
+        return "\n".join(details)
 
     def record_tool_call(self, tool_name: Optional[str]):
         if not tool_name:
@@ -288,7 +405,7 @@ class HaloAgent:
                 orders_result = (
                     supabase
                     .table("orders")
-                    .select("id, order_number, items, total_amount, status, fulfillment_type, created_at")
+                    .select("id, order_number, items, total_amount, status, fulfillment_type, delivery_address, created_at")
                     .eq("contact_id", contact_id)
                     .order("created_at", desc=True)
                     .limit(5)
@@ -310,6 +427,7 @@ class HaloAgent:
                     business_name = business.data.get("business_name") or business_name
                     payment_details_text = self._format_payment_instructions(business.data)
                     state.update_business(business_id, business_name)
+                    state.update_brand_profile(business.data)
                 else:
                     payment_details_text = None
             else:
@@ -318,7 +436,7 @@ class HaloAgent:
             logger.error(f"Error loading context: {e}")
             payment_details_text = None
 
-        state.extract_from_history(conversation_history + message, inventory)
+        state.extract_from_history(conversation_history, message, inventory)
         state.update_profile(contact_data, recent_orders)
 
         if state.pending_order.get("product_name") and not state.pending_order.get("price"):
@@ -328,8 +446,44 @@ class HaloAgent:
 
         profile_context = state.build_profile_context()
         inventory_snapshot = self._format_inventory_snapshot(inventory)
+        brand_context = state.build_brand_context()
         
         message_lower = message.lower()
+        normalized_message = self._normalize_customer_message(message)
+        previous_normalized_message = state.last_normalized_message
+        state.remember_customer_message(normalized_message)
+        greeting_hint = self._is_simple_greeting(message_lower)
+        message_analysis = self._analyze_customer_message(
+            state=state,
+            message_lower=message_lower,
+            normalized_message=normalized_message,
+            previous_normalized=previous_normalized_message,
+            contact_id=contact_id,
+            business_id=state.business_id,
+            phone=phone,
+            raw_message=message,
+            supabase_client=supabase,
+        )
+
+        if (
+            state.pending_order.get("fulfillment_type") == "delivery"
+            and not state.pending_order.get("delivery_address")
+        ):
+            fallback_address = state.profile.get("last_delivery_address")
+            if fallback_address:
+                same_address_cues = [
+                    "same address",
+                    "same spot",
+                    "same place",
+                    "same as before",
+                    "usual address",
+                    "usual spot",
+                    "deliver to the usual",
+                    "you already have my address",
+                    "use my saved address",
+                ]
+                if any(phrase in message_lower for phrase in same_address_cues):
+                    state.pending_order["delivery_address"] = fallback_address
 
         # Check if user is notifying payment
         if contact_id and any(word in message_lower for word in ["paid", "payment", "transferred", "sent money"]):
@@ -337,7 +491,7 @@ class HaloAgent:
                 pending_orders = (
                     supabase
                     .table("orders")
-                    .select("id, order_number, items, total_amount")
+                    .select("id, order_number, items, total_amount, payment_reference")
                     .eq("contact_id", contact_id)
                     .eq("status", "pending_payment")
                     .order("created_at", desc=True)
@@ -354,7 +508,11 @@ class HaloAgent:
                         if isinstance(items, str):
                             items = json.loads(items)
                         items_text = ", ".join([item['name'] for item in items]) if items else "items"
-                        orders_list.append(f"{i+1}. Order #{order['order_number']}\n   {items_text} - ₦{order['total_amount']:,}")
+                        ref = order.get("payment_reference")
+                        ref_text = f" (Ref: {ref})" if ref else ""
+                        orders_list.append(
+                            f"{i+1}. Order #{order['order_number']}\n   {items_text} - ₦{order['total_amount']:,}{ref_text}"
+                        )
 
                     orders_text = "\n\n".join(orders_list)
                     return (
@@ -368,10 +526,20 @@ class HaloAgent:
                     items = json.loads(items)
                 items_text = ", ".join([item['name'] for item in items]) if items else "your order"
 
-                supabase.table("orders").update({"status": "awaiting_confirmation"}).eq("id", order["id"]).execute()
+                supabase.table("orders").update({
+                    "status": "payment_pending_review",
+                    "payment_notes": f"Customer said they paid via chat on {datetime.utcnow().isoformat()}",
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("id", order["id"]).execute()
+                reference = order.get("payment_reference")
+                reference_line = (
+                    f"Please mention the reference {reference} or upload the receipt so the team can confirm faster. "
+                    if reference else ""
+                )
                 return (
-                    f"Thank you! I've notified the business owner about your payment for Order #{order['order_number']} "
-                    f"({items_text} - ₦{order['total_amount']:,}). They'll confirm it shortly and we'll start preparing your order! 🙏"
+                    f"Thanks for the heads up! I've flagged your payment for Order #{order['order_number']} "
+                    f"({items_text} - ₦{order['total_amount']:,}). {reference_line}"
+                    "We'll verify it shortly and kick off prep right after. 🙏"
                 )
             except Exception as e:
                 logger.error(f"Payment notification error: {e}")
@@ -395,10 +563,79 @@ class HaloAgent:
                     )
 
                     if order.data:
-                        supabase.table("orders").update({"status": "awaiting_confirmation"}).eq("id", order.data["id"]).execute()
-                        return f"Perfect! I've notified the business owner about your payment for Order #{order_number}. They'll confirm it shortly! 🙏"
+                        supabase.table("orders").update({
+                            "status": "payment_pending_review",
+                            "payment_notes": f"Customer shared payment reference via chat on {datetime.utcnow().isoformat()}",
+                            "updated_at": datetime.utcnow().isoformat()
+                        }).eq("id", order.data["id"]).execute()
+                        return f"Perfect! I've let the team know about your payment for Order #{order_number}. They'll confirm it shortly! 🙏"
             except Exception as e:
                 logger.error(f"Order number payment error: {e}")
+
+        payment_instruction_keywords = [
+            "payment details",
+            "payment info",
+            "payment instruction",
+            "payment instructions",
+            "bank details",
+            "bank info",
+            "bank account",
+            "account number",
+            "acct number",
+            "share your account",
+            "send your account",
+            "send account",
+            "how do i pay",
+            "how should i pay",
+            "where do i pay",
+            "transfer details",
+            "paying now",
+            "need payment",
+        ]
+        if contact_id and any(phrase in message_lower for phrase in payment_instruction_keywords):
+            try:
+                pending_instruction_order = (
+                    supabase
+                    .table("orders")
+                    .select("id, order_number, total_amount, payment_reference")
+                    .eq("contact_id", contact_id)
+                    .eq("status", "pending_payment")
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+
+                if not pending_instruction_order.data:
+                    return (
+                        "I'd love to share the bank details, but I don't see an order waiting for payment yet. "
+                        "Want me to start an order for you?"
+                    )
+
+                order = pending_instruction_order.data[0]
+                instructions_body = self._build_payment_instruction_block(
+                    order_number=order.get("order_number"),
+                    payment_reference=order.get("payment_reference"),
+                    payment_details_text=payment_details_text,
+                )
+                order_label = order.get("order_number") or str(order.get("id"))
+                total_text = self._format_currency(order.get("total_amount"))
+                try:
+                    supabase.table("orders").update({
+                        "payment_instructions_sent": True,
+                        "updated_at": datetime.utcnow().isoformat()
+                    }).eq("id", order["id"]).execute()
+                except Exception as marker_err:
+                    logger.warning(
+                        f"Failed to update payment instruction flag for order {order.get('id')}: {marker_err}"
+                    )
+                return (
+                    f"No problem! Here's how to pay for Order #{order_label} ({total_text}).\n\n"
+                    f"{instructions_body}\n\n"
+                    "After you transfer, reply \"I paid\" with the reference or receipt so I can flag it for review."
+                )
+            except Exception as e:
+                logger.error(f"Payment instruction share error: {e}")
+                return "I'm having trouble loading the payment details right now. Mind trying again in a moment?"
         
         # Check if user is giving feedback/rating (HIGHEST PRIORITY)
         if any(word in message_lower for word in ["star", "rating", "rate", "/5"]):
@@ -442,6 +679,12 @@ class HaloAgent:
         if explicit_intent or confirmation_intent:
             state.mark_order_intent()
 
+        missing_field = state.get_missing_field()
+        if state.has_order_intent() and missing_field and not state.has_all_order_details():
+            prompt = self._prompt_for_missing_detail(state, missing_field)
+            if prompt:
+                return prompt
+
         if state.has_all_order_details() and state.has_order_intent() and business_id:
             logger.info(f"Creating order immediately: {state.pending_order}")
             pending_snapshot = state.pending_order.copy()
@@ -451,7 +694,7 @@ class HaloAgent:
                     normalized = price_value.replace("₦", "").replace(",", "").strip()
                     price_value = float(normalized) if normalized.isdigit() else 0
                 order_total = float(price_value) * float(pending_snapshot.get("quantity", 1))
-                await self.tools.db_create_order(
+                order_response_raw = await self.tools.db_create_order(
                     phone=phone,
                     business_id=business_id,
                     items=[{
@@ -460,15 +703,49 @@ class HaloAgent:
                         "price": pending_snapshot["price"]
                     }],
                     total=order_total,
-                    delivery_type=pending_snapshot["fulfillment_type"]
+                    delivery_type=pending_snapshot["fulfillment_type"],
+                    delivery_address=pending_snapshot.get("delivery_address"),
+                    channel=state.channel
                 )
+                try:
+                    order_response = json.loads(order_response_raw or "{}")
+                except json.JSONDecodeError:
+                    order_response = {}
+                order_number = order_response.get("order_number")
+                payment_reference = order_response.get("payment_reference")
+                order_id = order_response.get("order_id")
+                if order_id:
+                    try:
+                        supabase.table("orders").update({
+                            "payment_instructions_sent": True,
+                            "updated_at": datetime.utcnow().isoformat()
+                        }).eq("id", order_id).execute()
+                    except Exception as marker_err:
+                        logger.warning(f"Failed to mark payment instructions sent for order {order_id}: {marker_err}")
+                if (
+                    pending_snapshot.get("fulfillment_type") == "delivery"
+                    and pending_snapshot.get("delivery_address")
+                ):
+                    state.profile["last_delivery_address"] = pending_snapshot["delivery_address"]
                 state.reset_pending_order()
-                payment_copy = payment_details_text or self._default_payment_instructions()
                 total_text = self._format_currency(order_total)
+                payment_block = self._build_payment_instruction_block(
+                    order_number=order_number,
+                    payment_reference=payment_reference,
+                    payment_details_text=payment_details_text,
+                )
+                address_line = ""
+                if pending_snapshot.get("fulfillment_type") == "delivery":
+                    delivery_dest = pending_snapshot.get("delivery_address") or state.profile.get("last_delivery_address")
+                    if delivery_dest:
+                        address_line = (
+                            f"Delivering to: {delivery_dest}\n"
+                            "If you need it sent somewhere else, just let me know before we dispatch.\n\n"
+                        )
                 return (
                     f"Perfect! Order confirmed for {pending_snapshot['product_name']} "
                     f"({pending_snapshot['fulfillment_type']}).\n\n"
-                    f"Order Total: {total_text}\n\n{payment_copy}\n\n"
+                    f"Order Total: {total_text}\n\n{address_line}{payment_block}\n\n"
                     "Once you've made the transfer, just let me know and we'll get started on your order right away! 🎉"
                 )
             except Exception as e:
@@ -481,12 +758,21 @@ class HaloAgent:
             f"Business Name: {state.business_name}",
             f"Customer Profile & Memory:\n{profile_context}",
         ]
+        if brand_context:
+            user_context_blocks.append(f"Business Brand Guidelines:\n{brand_context}")
         if inventory_snapshot:
             user_context_blocks.append(f"Inventory Snapshot:\n{inventory_snapshot}")
+        if message_analysis.get("notes"):
+            user_context_blocks.append("Agent Alert:\n" + "\n".join(message_analysis["notes"]))
+
         if context:
             user_context_blocks.append(f"Additional Context: {context}")
         user_context_blocks.append(f"Recent conversation:\n{conversation_history or 'No previous messages.'}")
         user_context_blocks.append(f"Customer now says: {message}")
+        if greeting_hint:
+            user_context_blocks.append(
+                "Agent note: Customer only sent a greeting. Keep it warm and conversational—welcome them back and ask how you can help without assuming an order or payment."
+            )
 
         messages = [
             {"role": "system", "content": self.system_prompt},
@@ -502,6 +788,9 @@ class HaloAgent:
             response_blocks = self._extract_json_blocks(response_text)
 
             if not response_blocks:
+                fallback = self._extract_action_message(response_text)
+                if fallback:
+                    return fallback
                 logger.info(f"Agent returned natural text: {response_text[:120]}")
                 return self._extract_final_message(response_text)
 
@@ -567,6 +856,129 @@ class HaloAgent:
         except Exception as e:
             return json.dumps({"error": f"Error executing tool '{tool_name}': {str(e)}"})
 
+    def _normalize_customer_message(self, message: Optional[str]) -> Optional[str]:
+        if not message:
+            return None
+        cleaned = message.strip().lower()
+        if not cleaned:
+            return None
+        return re.sub(r"\s+", " ", cleaned)
+
+    def _analyze_customer_message(
+        self,
+        *,
+        state: ConversationState,
+        message_lower: str,
+        normalized_message: Optional[str],
+        previous_normalized: Optional[str],
+        contact_id: Optional[int],
+        business_id: Optional[str],
+        phone: str,
+        raw_message: str,
+        supabase_client,
+    ) -> Dict[str, Any]:
+        notes: List[str] = []
+        escalation_id = None
+        issue_type = None
+
+        if normalized_message and previous_normalized and normalized_message == previous_normalized:
+            notes.append("Customer repeated the same request; acknowledge it and clarify what they still need.")
+
+        if self._mentions_delivery_conflict(message_lower):
+            notes.append("Customer mentioned both pickup and delivery. Ask which fulfillment option they prefer before proceeding.")
+
+        if self._looks_ambiguous(message_lower):
+            notes.append("Intent feels unclear. Ask a concise clarifying question before committing to an action.")
+
+        escalation_keywords = {
+            "complain": "service_complaint",
+            "complaint": "service_complaint",
+            "refund": "refund_request",
+            "angry": "service_complaint",
+            "disappointed": "service_complaint",
+            "escalate": "owner_callback",
+            "manager": "owner_callback",
+            "chargeback": "payment_conflict",
+            "wrong order": "order_issue",
+            "missing": "order_issue",
+            "late": "delivery_issue",
+            "scam": "payment_conflict",
+            "fraud": "payment_conflict",
+            "dispute": "payment_conflict",
+        }
+
+        for keyword, mapped in escalation_keywords.items():
+            if keyword in message_lower:
+                issue_type = mapped
+                break
+
+        if not issue_type and "payment" in message_lower and any(term in message_lower for term in ["issue", "problem", "double", "wrong", "failed"]):
+            issue_type = "payment_conflict"
+
+        if issue_type and business_id:
+            signature = f"{issue_type}:{normalized_message or raw_message.strip().lower()}"
+            if state.last_escalation_signature != signature:
+                escalation_id = self._record_escalation_ticket(
+                    supabase_client=supabase_client,
+                    business_id=business_id,
+                    contact_id=contact_id,
+                    phone=phone,
+                    issue_type=issue_type,
+                    description=raw_message.strip(),
+                )
+                if escalation_id:
+                    state.last_escalation_signature = signature
+                    notes.append(
+                        f"Sensitive issue detected ({issue_type}). Escalation ticket #{escalation_id} created—reassure the customer and promise a follow-up."
+                    )
+
+        return {"notes": notes, "escalation_id": escalation_id}
+
+    def _mentions_delivery_conflict(self, message_lower: str) -> bool:
+        if not message_lower:
+            return False
+        pickup_keywords = ["pickup", "pick up", "collect", "collection"]
+        delivery_keywords = ["deliver", "delivery", "ship", "drop off"]
+        return any(word in message_lower for word in pickup_keywords) and any(word in message_lower for word in delivery_keywords)
+
+    def _looks_ambiguous(self, message_lower: str) -> bool:
+        if not message_lower:
+            return True
+        filler_cues = ["not sure", "confused", "what now", "what next", "help", "??", "???"]
+        if any(cue in message_lower for cue in filler_cues):
+            return True
+        if message_lower.strip() in {"hmm", "ok", "okay", "alright", "yes", "no"}:
+            return True
+        if "?" in message_lower and not any(keyword in message_lower for keyword in ["order", "pay", "pickup", "deliver", "price", "menu", "tracking", "status"]):
+            return True
+        return False
+
+    def _record_escalation_ticket(
+        self,
+        *,
+        supabase_client,
+        business_id: str,
+        contact_id: Optional[int],
+        phone: str,
+        issue_type: str,
+        description: str,
+    ) -> Optional[int]:
+        try:
+            payload = {
+                "business_id": business_id,
+                "contact_id": contact_id,
+                "phone_number": phone,
+                "issue_type": issue_type,
+                "description": description,
+                "status": "open",
+            }
+            result = supabase_client.table("escalations").insert(payload).execute()
+            if result.data:
+                return result.data[0].get("id")
+        except Exception as exc:
+            logger.error(f"Failed to record escalation: {exc}")
+        return None
+
     def _extract_business_id(self, context: Optional[str]) -> Optional[str]:
         if not context:
             return None
@@ -618,6 +1030,24 @@ class HaloAgent:
             "Account Number: 0123456789"
         )
 
+    def _build_payment_instruction_block(
+        self,
+        order_number: Optional[str],
+        payment_reference: Optional[str],
+        payment_details_text: Optional[str],
+    ) -> str:
+        parts: List[str] = []
+        if order_number:
+            parts.append(f"Order ID: {order_number}")
+        if payment_reference:
+            parts.append(f"Payment Reference: {payment_reference}")
+            parts.append(
+                f"Please include \"{payment_reference}\" in your bank transfer narration or on the receipt so we can match it quickly."
+            )
+        instructions = payment_details_text or self._default_payment_instructions()
+        parts.append(instructions.strip())
+        return "\n".join(parts)
+
     def _format_currency(self, amount: Optional[float]) -> str:
         if amount is None:
             return "₦0"
@@ -648,6 +1078,80 @@ class HaloAgent:
             product = parsed.get("product")
             if product:
                 state.remember_menu_summary([product])
+
+    def _prompt_for_missing_detail(self, state: ConversationState, missing_field: str) -> Optional[str]:
+        pending = state.pending_order
+        business = state.business_name or "our shop"
+        product = pending.get("product_name")
+        fulfillment = pending.get("fulfillment_type")
+        quantity = pending.get("quantity") or 1
+
+        if missing_field == "product":
+            return (
+                f"Happy to help with your order from {business}! What would you like to get today? "
+                "Feel free to mention the exact item or share a quick idea so I can guide you."
+            )
+        if missing_field == "fulfillment":
+            base = product or "that order"
+            qty_text = f"{quantity} x {base}" if product and quantity > 1 else base
+            return (
+                f"Noted on {qty_text}! Would you like to pick it up or should we deliver it to you?"
+            )
+        if missing_field == "price" and product:
+            return (
+                f"I have {product} noted. Do you recall the size or price you want, or should I double-check the menu to be sure?"
+            )
+        if missing_field == "address" and fulfillment == "delivery":
+            base = product or "your order"
+            last_address = state.profile.get("last_delivery_address")
+            if last_address:
+                return (
+                    f"Great, we'll deliver {base}. Should I send it to the usual spot ({last_address}) or do you have a new delivery location?"
+                )
+            return (
+                f"Great, we'll deliver {base}. Could you share the delivery address plus any nearby landmark so the rider finds you easily?"
+            )
+        return None
+
+    def _is_simple_greeting(self, text: str) -> bool:
+        if not text:
+            return False
+        cleaned = text.strip()
+        if not cleaned:
+            return False
+        greeting_phrases = [
+            "hello",
+            "hi",
+            "hey",
+            "good morning",
+            "good afternoon",
+            "good evening",
+            "morning",
+            "evening",
+            "afternoon",
+            "greetings",
+        ]
+        if not any(phrase in cleaned for phrase in greeting_phrases):
+            return False
+        disqualifiers = [
+            "order",
+            "buy",
+            "price",
+            "payment",
+            "paid",
+            "ready",
+            "pickup",
+            "deliver",
+            "address",
+            "status",
+            "question",
+            "how much",
+            "cost",
+            "balance",
+        ]
+        if any(word in cleaned for word in disqualifiers):
+            return False
+        return len(cleaned) <= 120
 
     def _clean_json_response(self, text: str) -> str:
         text = text.strip()
@@ -732,5 +1236,31 @@ class HaloAgent:
                 candidates.append(extracted.strip())
 
         return candidates[0] if candidates else cleaned
+
+    def _extract_action_message(self, text: Any) -> Optional[str]:
+        if not text:
+            return None
+        cleaned = self._clean_json_response(str(text))
+        if "\"action\"" not in cleaned:
+            return None
+        try:
+            snippet = self._extract_json_blocks(cleaned)
+            for block in snippet:
+                if block.get("action") == "final_answer":
+                    message = block.get("message")
+                    if isinstance(message, str):
+                        return message.strip()
+        except Exception:
+            pass
+        match = re.search(r"\{[^{}]*\"action\"\s*:\s*\"final_answer\"[^{}]*\}", cleaned, re.DOTALL)
+        if match:
+            try:
+                block = json.loads(match.group(0))
+                message = block.get("message")
+                if isinstance(message, str):
+                    return message.strip()
+            except Exception:
+                return None
+        return None
 
 agent = HaloAgent()

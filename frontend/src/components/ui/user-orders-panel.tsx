@@ -15,6 +15,10 @@ interface Order {
   total_amount: number;
   created_at: string;
   items?: OrderItem[];
+  order_number?: string;
+  payment_reference?: string;
+  fulfillment_type?: string;
+  delivery_address?: string;
 }
 
 interface UserOrdersPanelProps {
@@ -157,7 +161,7 @@ export function UserOrdersPanel({
                       <div className="flex items-start justify-between">
                         <div>
                           <p className="text-xs uppercase tracking-wide text-gray-500">
-                            Order #{order.id}
+                            Order #{order.order_number || order.id}
                           </p>
                           <p className="text-sm text-gray-400">
                             {new Date(order.created_at).toLocaleDateString()} ·{" "}
@@ -199,6 +203,9 @@ export function UserOrdersPanel({
                             <p className="text-lg font-semibold text-black">
                               ₦{order.total_amount.toLocaleString()}
                             </p>
+                            {order.payment_reference && (
+                              <p className="text-xs text-gray-500">Ref: {order.payment_reference}</p>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 text-gray-500">
                             <Clock className="h-4 w-4" />
@@ -210,6 +217,14 @@ export function UserOrdersPanel({
                             </span>
                           </div>
                         </div>
+                        {order.fulfillment_type && (
+                          <div className="text-xs text-gray-500">
+                            <p className="font-medium text-gray-600">{order.fulfillment_type}</p>
+                            {order.fulfillment_type === "delivery" && order.delivery_address && (
+                              <p className="text-gray-500">{order.delivery_address}</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

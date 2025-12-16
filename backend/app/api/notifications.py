@@ -28,11 +28,11 @@ class MarkNotificationsRead(BaseModel):
 
 @router.post("/orders/{order_id}/notify-payment")
 async def notify_payment(order_id: int, data: PaymentNotification):
-    """Customer notifies they have paid - moves order to awaiting_confirmation"""
+    """Customer notifies they have paid - moves order to payment_pending_review"""
     try:
         # Update order status
         update_data = {
-            "status": "awaiting_confirmation",
+            "status": "payment_pending_review",
             "payment_method": data.payment_method,
             "payment_receipt_url": data.receipt_url,
             "payment_notes": data.notes,
@@ -45,12 +45,12 @@ async def notify_payment(order_id: int, data: PaymentNotification):
             raise HTTPException(status_code=404, detail="Order not found")
         
         # Send notification to owner (you can implement push notification here)
-        logger.info(f"Payment notification for order {order_id} - awaiting owner confirmation")
+        logger.info(f"Payment notification for order {order_id} - pending owner review")
         
         return {
             "status": "success",
             "message": "Payment notification sent to business owner",
-            "order_status": "awaiting_confirmation"
+            "order_status": "payment_pending_review"
         }
     
     except Exception as e:
@@ -91,9 +91,9 @@ async def get_notifications(current_user: dict = Depends(require_business_user))
         # Pending payment confirmations
         payment_orders = (
             supabase.table("orders")
-            .select("id, order_number, status, total_amount, payment_receipt_url, created_at, contacts(name, phone_number)")
+            .select("id, order_number, status, total_amount, payment_receipt_url, payment_reference, delivery_address, created_at, contacts(name, phone_number)")
             .eq("business_id", business_id)
-            .eq("status", "awaiting_confirmation")
+            .in_("status", ["payment_pending_review", "awaiting_confirmation"])
             .order("created_at", desc=True)
             .limit(50)
             .execute()
@@ -102,16 +102,24 @@ async def get_notifications(current_user: dict = Depends(require_business_user))
         for order in payment_orders.data or []:
             notif_id = _notification_id("payment_confirmation", order["id"])
             contact = order.get("contacts") or {}
+            reference = order.get("payment_reference")
+            receipt_url = order.get("payment_receipt_url")
             append_notification({
                 "id": notif_id,
                 "entity_id": order["id"],
                 "type": "payment_confirmation",
                 "category": "payments",
                 "title": "Payment awaiting approval",
-                "message": f"{contact.get('name') or 'Customer'} says they paid order #{order.get('order_number') or order['id']}",
+                "message": (
+                    f"{contact.get('name') or 'Customer'} paid order #{order.get('order_number') or order['id']}"
+                    + (f" · Ref: {reference}" if reference else "")
+                ),
                 "order_id": order["id"],
                 "amount": order.get("total_amount"),
-                "receipt_url": order.get("payment_receipt_url"),
+                "receipt_url": receipt_url,
+                "reference": reference,
+                "contact_phone": contact.get("phone_number"),
+                "delivery_address": order.get("delivery_address"),
                 "created_at": order.get("created_at"),
             })
 

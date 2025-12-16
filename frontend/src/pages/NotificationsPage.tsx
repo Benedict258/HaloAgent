@@ -62,6 +62,9 @@ interface NotificationItem {
   amount?: number;
   receipt_url?: string;
   rating?: number;
+  reference?: string;
+  contact_phone?: string;
+  delivery_address?: string;
   read: boolean;
 }
 
@@ -72,6 +75,7 @@ export default function NotificationsPage() {
   const [businessId] = useState("sweetcrumbs_001");
   const [marking, setMarking] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const authHeaders = (extra: Record<string, string> = {}) => {
@@ -179,6 +183,33 @@ export default function NotificationsPage() {
     }
   };
 
+  const rejectPayment = async (item: NotificationItem) => {
+    if (!item.order_id) return;
+    const reason = window.prompt("Add a short note before rejecting", "Receipt is unclear");
+    if (reason === null) return;
+    const headers = authHeaders({ "Content-Type": "application/json" });
+    if (!headers) {
+      setError("Please sign in again before rejecting payments.");
+      return;
+    }
+    setRejectingId(item.id);
+    try {
+      await fetch(`${API_URL}/api/orders/${item.order_id}/approve-payment`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ approved: false, notes: reason.trim() || undefined }),
+      });
+      await markAsRead([item]);
+      fetchNotifications();
+      setError(null);
+    } catch (error) {
+      console.error("Failed to reject payment", error);
+      setError("Failed to reject payment. Please try again.");
+    } finally {
+      setRejectingId(null);
+    }
+  };
+
   const renderEmptyState = () => (
     <div className="text-center py-24">
       <Bell className="w-12 h-12 text-gray-300 mx-auto mb-4" />
@@ -277,6 +308,15 @@ export default function NotificationsPage() {
                         </div>
                         <h3 className="text-lg font-semibold text-black">{item.title}</h3>
                         <p className="text-sm text-gray-600 mt-1">{item.message}</p>
+                        {item.reference && (
+                          <p className="text-xs text-gray-500 mt-1">Payment ref: {item.reference}</p>
+                        )}
+                        {item.contact_phone && (
+                          <p className="text-xs text-gray-500">Phone: {item.contact_phone}</p>
+                        )}
+                        {item.delivery_address && (
+                          <p className="text-xs text-gray-500">Deliver to: {item.delivery_address}</p>
+                        )}
                         <p className="text-xs text-gray-400 mt-2">
                           {new Date(item.created_at).toLocaleString()}
                         </p>
@@ -337,6 +377,20 @@ export default function NotificationsPage() {
                           <CheckCircle className="h-3 w-3" />
                         )}
                         Approve payment
+                      </button>
+                    )}
+                    {item.type === "payment_confirmation" && (
+                      <button
+                        onClick={() => rejectPayment(item)}
+                        disabled={rejectingId === item.id}
+                        className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-red-700"
+                      >
+                        {rejectingId === item.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <CheckCircle className="h-3 w-3 rotate-45" />
+                        )}
+                        Reject
                       </button>
                     )}
                   </div>
