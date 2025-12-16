@@ -1,5 +1,6 @@
 import re
 import secrets
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,6 +40,30 @@ class BusinessProfileInput(BaseModel):
     integrations: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
+class InventoryItemInput(BaseModel):
+    sku: Optional[str] = Field(None, min_length=1, max_length=60)
+    name: str = Field(..., min_length=2, max_length=140)
+    description: Optional[str] = Field(None, max_length=600)
+    price: float = Field(..., ge=0)
+    currency: Optional[str] = Field(None, min_length=3, max_length=5)
+    category: Optional[str] = Field(None, max_length=80)
+    image_urls: Optional[List[str]] = None
+    image_url: Optional[str] = Field(None, max_length=500)
+    available_today: Optional[bool] = None
+    available: Optional[bool] = None
+
+
+class InventoryItemUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=2, max_length=140)
+    description: Optional[str] = Field(None, max_length=600)
+    price: Optional[float] = Field(None, ge=0)
+    category: Optional[str] = Field(None, max_length=80)
+    image_urls: Optional[List[str]] = None
+    image_url: Optional[str] = Field(None, max_length=500)
+    available_today: Optional[bool] = None
+    available: Optional[bool] = None
+
+
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or f"biz-{secrets.token_hex(2)}"
@@ -47,7 +72,7 @@ def _slugify(value: str) -> str:
 def _generate_sandbox_code(existing: Optional[str]) -> str:
     if existing:
         return existing
-    return f"JOIN-HALO-{secrets.token_hex(2).upper()}"
+    return f"JOINHALO{secrets.token_hex(2).upper()}"
 
 
 async def _require_business_account(current_user: dict = Depends(get_current_user)) -> dict:
@@ -72,10 +97,22 @@ async def save_business_profile(payload: BusinessProfileInput, current_user: dic
         "sample_messages": [msg for msg in payload.sample_messages if msg.strip()],
     }
 
+    channels_payload: Dict[str, Any] = {}
+    if isinstance(payload.integrations, dict):
+        channels_payload = payload.integrations.copy()
+
+    twilio_settings = channels_payload.get("twilio") if isinstance(channels_payload, dict) else None
+    user_join_code = None
+    if isinstance(twilio_settings, dict):
+        raw_join_code = twilio_settings.get("join_code") or twilio_settings.get("sandbox_join_code")
+        if isinstance(raw_join_code, str) and raw_join_code.strip():
+            user_join_code = raw_join_code.upper().replace("-", "")
+            channels_payload["twilio"] = {**twilio_settings, "join_code": user_join_code}
+
     integration_preferences = {
         "website": payload.website,
         "instagram": payload.instagram,
-        "channels": payload.integrations or {}
+        "channels": channels_payload,
     }
 
     business_record = {
@@ -94,7 +131,8 @@ async def save_business_profile(payload: BusinessProfileInput, current_user: dic
 
     # Fetch existing record (if any)
     existing = supabase.table("businesses").select("business_id,sandbox_code").eq("business_id", business_id).execute()
-    sandbox_code = _generate_sandbox_code(existing.data[0]["sandbox_code"]) if existing.data else _generate_sandbox_code(None)
+    existing_sandbox = existing.data[0].get("sandbox_code") if existing.data else None
+    sandbox_code = user_join_code or _generate_sandbox_code(existing_sandbox)
     business_record["sandbox_code"] = sandbox_code
 
     try:
@@ -121,3 +159,238 @@ async def save_business_profile(payload: BusinessProfileInput, current_user: dic
         ],
     }
     return response
+
+
+def _normalize_image_urls(urls: Optional[List[str]]) -> List[str]:
+    if not urls:
+        return []
+    normalized: List[str] = []
+    for url in urls:
+        if not isinstance(url, str):
+            continue
+        trimmed = url.strip()
+        if trimmed:
+            normalized.append(trimmed)
+    # Keep a reasonable number of images per item
+    return normalized[:6]
+
+
+def _slugify_item_id(value: Optional[str]) -> str:
+    if not value:
+        return f"item-{secrets.token_hex(3)}"
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or f"item-{secrets.token_hex(3)}"
+
+
+def _normalize_sku(raw: str) -> str:
+    normalized = (raw or "").strip().upper()
+    if not normalized:
+        raise HTTPException(status_code=422, detail="SKU cannot be empty")
+    return normalized
+
+
+def _match_inventory_item(inventory: List[Dict[str, Any]], sku_or_slug: str) -> Optional[Dict[str, Any]]:
+    normalized = (sku_or_slug or "").strip().upper()
+    if not normalized:
+        return None
+    for item in inventory:
+        item_sku = (item.get("sku") or "").strip().upper()
+        if item_sku and item_sku == normalized:
+            return item
+        name_slug = _slugify_item_id(item.get("name"))
+        item.setdefault("legacy_name_slug", name_slug)
+        if name_slug.upper() == normalized:
+            return item
+    return None
+
+
+def _coerce_price(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="Price must be a number") from None
+
+
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "on"}
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
+def _normalize_inventory_items(inventory: List[Dict[str, Any]]) -> Dict[str, Any]:
+    changed = False
+    normalized_items: List[Dict[str, Any]] = []
+    for item in inventory:
+        if not isinstance(item, dict):
+            continue
+        working = item.copy()
+        if not working.get("sku"):
+            working["sku"] = _slugify_item_id(working.get("name") or working.get("sku"))[:60].upper()
+            changed = True
+        working["sku"] = working["sku"].upper()
+        working.setdefault("name", working.get("title") or "Unnamed Item")
+        working.setdefault("legacy_name_slug", _slugify_item_id(working.get("name")))
+        working["price"] = _coerce_price(working.get("price", 0))
+        working.setdefault("currency", "NGN")
+        urls = working.get("image_urls")
+        if urls is None and working.get("image_url"):
+            urls = [working.get("image_url")]  # type: ignore[list-item]
+        working["image_urls"] = _normalize_image_urls(urls)
+        if working["image_urls"]:
+            working["image_url"] = working["image_urls"][0]
+        working["available_today"] = _coerce_bool(working.get("available_today"), default=_coerce_bool(working.get("available"), default=True))
+        working["available"] = working["available_today"]
+        if not working.get("updated_at"):
+            working["updated_at"] = datetime.utcnow().isoformat()
+        normalized_items.append(working)
+    return {"items": normalized_items, "changed": changed}
+
+
+def _load_business_record(supabase, business_id: str) -> Dict[str, Any]:
+    try:
+        res = supabase.table("businesses").select("business_id,owner_user_id,inventory").eq("business_id", business_id).execute()
+    except Exception as exc:  # pragma: no cover - Supabase client raises runtime errors
+        raise HTTPException(status_code=500, detail=f"Unable to load business: {exc}") from exc
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Business not found")
+    return res.data[0]
+
+
+def _check_inventory_scope(business_id: str, record: Dict[str, Any], current_user: dict) -> None:
+    user_business_id = current_user.get("business_id")
+    if user_business_id and user_business_id == business_id:
+        return
+    owner_id = record.get("owner_user_id")
+    if owner_id and owner_id == current_user.get("id"):
+        return
+    raise HTTPException(status_code=403, detail="You can only manage your own inventory")
+
+
+def _save_inventory(supabase, business_id: str, inventory: List[Dict[str, Any]]) -> None:
+    try:
+        supabase.table("businesses").update({"inventory": inventory}).eq("business_id", business_id).execute()
+    except Exception as exc:  # pragma: no cover - Supabase client raises runtime errors
+        raise HTTPException(status_code=500, detail=f"Unable to persist inventory: {exc}") from exc
+
+
+def _serialize_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    serialized = item.copy()
+    serialized.setdefault("currency", "NGN")
+    serialized.setdefault("available_today", False)
+    serialized.setdefault("available", serialized.get("available_today", False))
+    serialized.setdefault("image_urls", [])
+    if serialized["image_urls"] and not serialized.get("image_url"):
+        serialized["image_url"] = serialized["image_urls"][0]
+    return serialized
+
+
+@router.get("/businesses/{business_id}/inventory")
+async def list_inventory(business_id: str, current_user: dict = Depends(_require_business_account)):
+    supabase = get_supabase()
+    record = _load_business_record(supabase, business_id)
+    _check_inventory_scope(business_id, record, current_user)
+    inventory = record.get("inventory") or []
+    normalized = _normalize_inventory_items(inventory)
+    if normalized["changed"]:
+        _save_inventory(supabase, business_id, normalized["items"])
+    sanitized = [_serialize_item(item) for item in normalized["items"]]
+    return {"business_id": business_id, "inventory": sanitized}
+
+
+@router.post("/businesses/{business_id}/inventory", status_code=201)
+async def create_inventory_item(
+    business_id: str,
+    payload: InventoryItemInput,
+    current_user: dict = Depends(_require_business_account),
+):
+    supabase = get_supabase()
+    record = _load_business_record(supabase, business_id)
+    _check_inventory_scope(business_id, record, current_user)
+
+    normalized_sku = _normalize_sku(payload.sku or _slugify_item_id(payload.name))
+    inventory: List[Dict[str, Any]] = record.get("inventory") or []
+    existing = next((item for item in inventory if (item.get("sku") or "").strip().upper() == normalized_sku), None)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Item with SKU '{normalized_sku}' already exists")
+
+    combined_images: List[str] = []
+    if payload.image_urls:
+        combined_images = _normalize_image_urls(payload.image_urls)
+    elif payload.image_url:
+        combined_images = _normalize_image_urls([payload.image_url])
+
+    available_flag = _coerce_bool(
+        payload.available_today if payload.available_today is not None else payload.available,
+        default=True,
+    )
+
+    new_item = {
+        "sku": normalized_sku,
+        "name": payload.name.strip(),
+        "description": payload.description.strip() if payload.description else None,
+        "price": float(payload.price),
+        "currency": (payload.currency or "NGN").upper(),
+        "category": payload.category.strip() if payload.category else None,
+        "image_urls": combined_images,
+        "image_url": combined_images[0] if combined_images else None,
+        "available_today": available_flag,
+        "available": available_flag,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+    inventory.append(new_item)
+    _save_inventory(supabase, business_id, inventory)
+    return {"status": "success", "item": new_item, "inventory": inventory}
+
+
+@router.put("/businesses/{business_id}/inventory/{sku}")
+async def update_inventory_item(
+    business_id: str,
+    sku: str,
+    payload: InventoryItemUpdate,
+    current_user: dict = Depends(_require_business_account),
+):
+    supabase = get_supabase()
+    record = _load_business_record(supabase, business_id)
+    _check_inventory_scope(business_id, record, current_user)
+
+    inventory: List[Dict[str, Any]] = record.get("inventory") or []
+    target = _match_inventory_item(inventory, sku)
+    if not target:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+
+    target["sku"] = target.get("sku") or _slugify_item_id(target.get("name"))
+    if payload.name is not None:
+        target["name"] = payload.name.strip()
+    if payload.description is not None:
+        target["description"] = payload.description.strip() or None
+    if payload.price is not None:
+        target["price"] = float(payload.price)
+    if payload.category is not None:
+        target["category"] = payload.category.strip() or None
+    if payload.image_urls is not None:
+        target["image_urls"] = _normalize_image_urls(payload.image_urls)
+    elif payload.image_url is not None:
+        target["image_urls"] = _normalize_image_urls([payload.image_url])
+    if payload.available_today is not None:
+        target["available_today"] = payload.available_today
+        target["available"] = payload.available_today
+    elif payload.available is not None:
+        available_flag = _coerce_bool(payload.available)
+        target["available_today"] = available_flag
+        target["available"] = available_flag
+
+    if target.get("image_urls"):
+        target["image_url"] = target["image_urls"][0]
+    else:
+        target["image_url"] = None
+
+    target["updated_at"] = datetime.utcnow().isoformat()
+    _save_inventory(supabase, business_id, inventory)
+    return {"status": "success", "item": target, "inventory": inventory}

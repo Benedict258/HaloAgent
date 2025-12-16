@@ -11,6 +11,7 @@ import RevenuePage from "@/pages/RevenuePage";
 import UserChatPage from "@/pages/UserChatPage";
 import NotificationsPage from "@/pages/NotificationsPage";
 import SetupPage from "@/pages/SetupPage";
+import InventoryPage from "@/pages/InventoryPage";
 
 function App() {
   return (
@@ -65,6 +66,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={["business"]}>
                 <NotificationsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory"
+            element={
+              <ProtectedRoute allowedRoles={["business"]}>
+                <InventoryPage />
               </ProtectedRoute>
             }
           />
