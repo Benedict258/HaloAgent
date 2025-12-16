@@ -252,14 +252,43 @@ def _normalize_inventory_items(inventory: List[Dict[str, Any]]) -> Dict[str, Any
     return {"items": normalized_items, "changed": changed}
 
 
-def _load_business_record(supabase, business_id: str) -> Dict[str, Any]:
-    try:
-        res = supabase.table("businesses").select("business_id,owner_user_id,inventory").eq("business_id", business_id).execute()
-    except Exception as exc:  # pragma: no cover - Supabase client raises runtime errors
-        raise HTTPException(status_code=500, detail=f"Unable to load business: {exc}") from exc
-    if not res.data:
-        raise HTTPException(status_code=404, detail="Business not found")
-    return res.data[0]
+def _load_business_record(supabase, business_id: str, current_user: dict) -> Dict[str, Any]:
+    lookup_values: List[str] = []
+    param = (business_id or "").strip()
+    if not param or param.lower() in {"me", "self"}:
+        param = current_user.get("business_id") or ""
+    if param:
+        lookup_values.append(param)
+    if current_user.get("business_id") and current_user["business_id"] not in lookup_values:
+        lookup_values.append(current_user["business_id"])
+    slug_candidate = _slugify(param).replace("-", "_") if param else None
+    if slug_candidate and slug_candidate not in lookup_values:
+        lookup_values.append(slug_candidate)
+
+    def _fetch(filter_method: str, value: str):
+        query = supabase.table("businesses").select("business_id,owner_user_id,inventory")
+        method = getattr(query, filter_method)
+        return method("business_id", value).execute()
+
+    last_error: Optional[Exception] = None
+    for candidate in lookup_values:
+        if not candidate:
+            continue
+        try:
+            res = _fetch("eq", candidate)
+            if res.data:
+                return res.data[0]
+            res = _fetch("ilike", candidate)
+            if res.data:
+                return res.data[0]
+        except Exception as exc:  # pragma: no cover
+            last_error = exc
+            break
+
+    if last_error:
+        raise HTTPException(status_code=500, detail=f"Unable to load business: {last_error}") from last_error
+
+    raise HTTPException(status_code=404, detail="Business not found")
 
 
 def _check_inventory_scope(business_id: str, record: Dict[str, Any], current_user: dict) -> None:
@@ -293,7 +322,7 @@ def _serialize_item(item: Dict[str, Any]) -> Dict[str, Any]:
 @router.get("/businesses/{business_id}/inventory")
 async def list_inventory(business_id: str, current_user: dict = Depends(_require_business_account)):
     supabase = get_supabase()
-    record = _load_business_record(supabase, business_id)
+    record = _load_business_record(supabase, business_id, current_user)
     _check_inventory_scope(business_id, record, current_user)
     inventory = record.get("inventory") or []
     normalized = _normalize_inventory_items(inventory)
@@ -310,7 +339,7 @@ async def create_inventory_item(
     current_user: dict = Depends(_require_business_account),
 ):
     supabase = get_supabase()
-    record = _load_business_record(supabase, business_id)
+    record = _load_business_record(supabase, business_id, current_user)
     _check_inventory_scope(business_id, record, current_user)
 
     normalized_sku = _normalize_sku(payload.sku or _slugify_item_id(payload.name))
@@ -357,7 +386,7 @@ async def update_inventory_item(
     current_user: dict = Depends(_require_business_account),
 ):
     supabase = get_supabase()
-    record = _load_business_record(supabase, business_id)
+    record = _load_business_record(supabase, business_id, current_user)
     _check_inventory_scope(business_id, record, current_user)
 
     inventory: List[Dict[str, Any]] = record.get("inventory") or []
