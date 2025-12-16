@@ -69,6 +69,13 @@ def _slugify(value: str) -> str:
     return slug or f"biz-{secrets.token_hex(2)}"
 
 
+def _canonical_business_id(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    normalized = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+    return normalized
+
+
 def _generate_sandbox_code(existing: Optional[str]) -> str:
     if existing:
         return existing
@@ -252,18 +259,45 @@ def _normalize_inventory_items(inventory: List[Dict[str, Any]]) -> Dict[str, Any
     return {"items": normalized_items, "changed": changed}
 
 
-def _load_business_record(supabase, business_id: str, current_user: dict) -> Dict[str, Any]:
+def _collect_business_lookup_values(business_id: Optional[str], current_user: dict) -> List[str]:
     lookup_values: List[str] = []
-    param = (business_id or "").strip()
-    if not param or param.lower() in {"me", "self"}:
-        param = current_user.get("business_id") or ""
-    if param:
-        lookup_values.append(param)
-    if current_user.get("business_id") and current_user["business_id"] not in lookup_values:
-        lookup_values.append(current_user["business_id"])
-    slug_candidate = _slugify(param).replace("-", "_") if param else None
-    if slug_candidate and slug_candidate not in lookup_values:
-        lookup_values.append(slug_candidate)
+
+    def _append_variations(value: Optional[str]) -> None:
+        if not value:
+            return
+        base = value.strip()
+        if not base:
+            return
+        candidates = {
+            base,
+            base.lower(),
+            base.upper(),
+            base.replace("-", "_"),
+            base.replace("_", "-"),
+        }
+        slug_form = _slugify(base)
+        candidates.add(slug_form)
+        candidates.add(slug_form.replace("-", "_"))
+        for candidate in list(candidates):
+            if candidate:
+                candidates.add(candidate.replace("-", "_"))
+                candidates.add(candidate.replace("_", "-"))
+        for candidate in candidates:
+            cleaned = candidate.strip()
+            if cleaned and cleaned not in lookup_values:
+                lookup_values.append(cleaned)
+
+    normalized_param = (business_id or "").strip()
+    if normalized_param.lower() in {"me", "self"}:
+        normalized_param = current_user.get("business_id") or ""
+    _append_variations(normalized_param)
+    _append_variations(current_user.get("business_id"))
+    _append_variations(current_user.get("business_name"))
+    return lookup_values
+
+
+def _load_business_record(supabase, business_id: str, current_user: dict) -> Dict[str, Any]:
+    lookup_values = _collect_business_lookup_values(business_id, current_user)
 
     def _fetch(filter_method: str, value: str):
         query = supabase.table("businesses").select("business_id,owner_user_id,inventory")
@@ -278,12 +312,28 @@ def _load_business_record(supabase, business_id: str, current_user: dict) -> Dic
             res = _fetch("eq", candidate)
             if res.data:
                 return res.data[0]
-            res = _fetch("ilike", candidate)
+            pattern = candidate if "%" in candidate else candidate
+            res = _fetch("ilike", pattern)
             if res.data:
                 return res.data[0]
         except Exception as exc:  # pragma: no cover
             last_error = exc
             break
+
+    owner_id = current_user.get("id")
+    if owner_id:
+        try:
+            res = (
+                supabase
+                .table("businesses")
+                .select("business_id,owner_user_id,inventory")
+                .eq("owner_user_id", owner_id)
+                .execute()
+            )
+            if res.data:
+                return res.data[0]
+        except Exception as exc:  # pragma: no cover
+            last_error = exc
 
     if last_error:
         raise HTTPException(status_code=500, detail=f"Unable to load business: {last_error}") from last_error
@@ -292,8 +342,11 @@ def _load_business_record(supabase, business_id: str, current_user: dict) -> Dic
 
 
 def _check_inventory_scope(business_id: str, record: Dict[str, Any], current_user: dict) -> None:
-    user_business_id = current_user.get("business_id")
-    if user_business_id and user_business_id == business_id:
+    requested_canonical = _canonical_business_id(business_id)
+    record_canonical = _canonical_business_id(record.get("business_id"))
+    user_canonical = _canonical_business_id(current_user.get("business_id"))
+
+    if user_canonical and (user_canonical == requested_canonical or user_canonical == record_canonical):
         return
     owner_id = record.get("owner_user_id")
     if owner_id and owner_id == current_user.get("id"):
@@ -324,12 +377,13 @@ async def list_inventory(business_id: str, current_user: dict = Depends(_require
     supabase = get_supabase()
     record = _load_business_record(supabase, business_id, current_user)
     _check_inventory_scope(business_id, record, current_user)
+    target_business_id = record.get("business_id") or business_id
     inventory = record.get("inventory") or []
     normalized = _normalize_inventory_items(inventory)
     if normalized["changed"]:
-        _save_inventory(supabase, business_id, normalized["items"])
+        _save_inventory(supabase, target_business_id, normalized["items"])
     sanitized = [_serialize_item(item) for item in normalized["items"]]
-    return {"business_id": business_id, "inventory": sanitized}
+    return {"business_id": target_business_id, "inventory": sanitized}
 
 
 @router.post("/businesses/{business_id}/inventory", status_code=201)
@@ -341,6 +395,7 @@ async def create_inventory_item(
     supabase = get_supabase()
     record = _load_business_record(supabase, business_id, current_user)
     _check_inventory_scope(business_id, record, current_user)
+    target_business_id = record.get("business_id") or business_id
 
     normalized_sku = _normalize_sku(payload.sku or _slugify_item_id(payload.name))
     inventory: List[Dict[str, Any]] = record.get("inventory") or []
@@ -374,7 +429,7 @@ async def create_inventory_item(
     }
 
     inventory.append(new_item)
-    _save_inventory(supabase, business_id, inventory)
+    _save_inventory(supabase, target_business_id, inventory)
     return {"status": "success", "item": new_item, "inventory": inventory}
 
 
@@ -388,6 +443,7 @@ async def update_inventory_item(
     supabase = get_supabase()
     record = _load_business_record(supabase, business_id, current_user)
     _check_inventory_scope(business_id, record, current_user)
+    target_business_id = record.get("business_id") or business_id
 
     inventory: List[Dict[str, Any]] = record.get("inventory") or []
     target = _match_inventory_item(inventory, sku)
@@ -421,5 +477,5 @@ async def update_inventory_item(
         target["image_url"] = None
 
     target["updated_at"] = datetime.utcnow().isoformat()
-    _save_inventory(supabase, business_id, inventory)
+    _save_inventory(supabase, target_business_id, inventory)
     return {"status": "success", "item": target, "inventory": inventory}
