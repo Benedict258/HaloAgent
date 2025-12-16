@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { API_URL } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -46,8 +47,7 @@ interface MetaIntegration {
 interface TwilioIntegration {
     enabled: boolean;
     from_number: string;
-    webhook_url: string;
-    account_sid: string;
+    join_code: string;
 }
 
 interface WebIntegration {
@@ -72,8 +72,7 @@ const DEFAULT_INTEGRATIONS: IntegrationsState = {
     twilio: {
         enabled: false,
         from_number: "",
-        webhook_url: "",
-        account_sid: "",
+        join_code: "",
     },
     web: {
         enabled: true,
@@ -109,6 +108,7 @@ interface FormState {
 
 function SetupPage() {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [formState, setFormState] = useState<FormState>({
         business_name: "",
         description: "",
@@ -126,6 +126,7 @@ function SetupPage() {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [result, setResult] = useState<BusinessResult | null>(null);
+    const [redirectAfterSave, setRedirectAfterSave] = useState(false);
 
     const authHeaders = () => {
         const token = localStorage.getItem("auth_token");
@@ -218,6 +219,11 @@ function SetupPage() {
         setFormState((prev) => ({ ...prev, sample_messages: [...prev.sample_messages, ""] }));
     };
 
+    const handleFinishSetup = () => {
+        setRedirectAfterSave(true);
+        document.getElementById("business-setup-form")?.requestSubmit();
+    };
+
     const toggleIntegrationChannel = (channel: keyof IntegrationsState) => {
         setFormState((prev) => ({
             ...prev,
@@ -244,8 +250,8 @@ function SetupPage() {
         }));
     };
 
-    const handleSubmit = async (event: React.FormEvent) => {
-        event.preventDefault();
+    const handleSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
+        event?.preventDefault();
         setSaving(true);
         setError(null);
         setResult(null);
@@ -266,9 +272,14 @@ function SetupPage() {
                 throw new Error(data.detail || "Unable to save business profile");
             }
             setResult(data);
+            if (redirectAfterSave) {
+                setRedirectAfterSave(false);
+                navigate("/dashboard");
+            }
         } catch (err) {
             console.error(err);
             setError(err instanceof Error ? err.message : "Something went wrong while saving.");
+            setRedirectAfterSave(false);
         } finally {
             setSaving(false);
         }
@@ -318,7 +329,7 @@ function SetupPage() {
                     </span>
                 </div>
 
-                <section className="relative overflow-hidden rounded-3xl border border-brand/20 bg-gradient-to-br from-white via-brand-50 to-white px-6 py-12">
+                <section className="relative overflow-hidden rounded-3xl border border-brand/20 bg-linear-to-br from-white via-brand-50 to-white px-6 py-12">
                     <div className="absolute inset-y-0 right-0 w-1/2 bg-brand/10 blur-3xl" />
                     <div className="relative max-w-3xl space-y-6">
                         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-gray-500">Integration launchpad</p>
@@ -369,7 +380,7 @@ function SetupPage() {
                     <div className="mb-6 space-y-2">
                         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-gray-500">Integration validation</p>
                         <h2 className="text-2xl font-bold text-black">Confirm channel credentials</h2>
-                        <p className="text-gray-600">Store sandbox or production credentials here so HaloAgent can keep replies branded and route traffic through the right number.</p>
+                        <p className="text-gray-600">Store sandbox or production credentials here so HaloAgent keeps every reply on your trusted numbers.</p>
                     </div>
                     <div className="grid gap-6 md:grid-cols-3">
                         <div className="rounded-2xl border border-gray-100 p-5">
@@ -425,7 +436,7 @@ function SetupPage() {
                             <div className="flex items-center justify-between">
                                 <div>
                                     <p className="text-sm font-semibold text-black">Twilio</p>
-                                    <p className="text-xs text-gray-500">WhatsApp sandbox / production</p>
+                                    <p className="text-xs text-gray-500">Paste the Twilio sandbox number + join code</p>
                                 </div>
                                 <label className="flex items-center gap-2 text-xs font-semibold text-gray-600">
                                     <input
@@ -449,25 +460,16 @@ function SetupPage() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Webhook URL</label>
-                                    <input
-                                        type="url"
-                                        value={formState.integrations.twilio.webhook_url}
-                                        onChange={(e) => handleIntegrationField("twilio", "webhook_url", e.target.value)}
-                                        disabled={!formState.integrations.twilio.enabled}
-                                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
-                                        placeholder="https://example.com/webhooks/twilio"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Account SID</label>
+                                    <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Sandbox join code</label>
                                     <input
                                         type="text"
-                                        value={formState.integrations.twilio.account_sid}
-                                        onChange={(e) => handleIntegrationField("twilio", "account_sid", e.target.value)}
+                                        value={formState.integrations.twilio.join_code}
+                                        onChange={(e) => handleIntegrationField("twilio", "join_code", e.target.value)}
                                         disabled={!formState.integrations.twilio.enabled}
                                         className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+                                        placeholder="JOINHALO1234"
                                     />
+                                    <p className="mt-1 text-xs text-gray-500">HaloAgent shares your webhook automatically after you save.</p>
                                 </div>
                             </div>
                         </div>
@@ -526,7 +528,7 @@ function SetupPage() {
                         <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
                     )}
 
-                    <form className="space-y-6" onSubmit={handleSubmit}>
+                    <form id="business-setup-form" className="space-y-6" onSubmit={(event) => handleSubmit(event)}>
                         <div className="grid gap-6 md:grid-cols-2">
                             <div>
                                 <label className="text-sm font-medium text-black">Business name</label>
@@ -778,10 +780,10 @@ MessageSid: SMxxxx`}
                     <h3 className="text-2xl font-bold text-black">Finish setup &amp; start a live demo</h3>
                     <p className="mt-2 text-gray-700">Run the quick health-check to send a sample WhatsApp reply, preview product cards, and see the dashboard update in real time.</p>
                     <div className="mt-6 flex flex-wrap justify-center gap-3">
-                        <Button className="bg-brand text-white hover:bg-brand-600" onClick={() => document.getElementById("business-profile-form")?.scrollIntoView({ behavior: "smooth" })}>
+                        <Button className="bg-brand text-white hover:bg-brand-600" onClick={handleFinishSetup}>
                             Finish setup now
                         </Button>
-                        <Button variant="outline">Jump to Dashboard</Button>
+                        <Button variant="outline" onClick={() => navigate("/dashboard")}>Jump to Dashboard</Button>
                     </div>
                 </section>
             </div>

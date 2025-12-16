@@ -18,8 +18,8 @@ function Hero() {
     }, [highlights.length]);
 
     return (
-        <div className="relative isolate w-full overflow-hidden bg-gradient-to-b from-white via-brand-50/60 to-white">
-            <div className="pointer-events-none absolute -top-24 left-1/2 h-96 w-[48rem] -translate-x-1/2 rounded-full bg-brand/15 blur-3xl" />
+        <div className="relative isolate w-full overflow-hidden bg-linear-to-b from-white via-brand-50/60 to-white">
+            <div className="pointer-events-none absolute -top-24 left-1/2 h-96 w-3xl -translate-x-1/2 rounded-full bg-brand/15 blur-3xl" />
             <div className="pointer-events-none absolute top-32 right-0 h-64 w-64 translate-x-1/3 rounded-full bg-brand/10 blur-2xl" />
             <div className="container mx-auto px-4">
                 <div className="flex gap-8 py-20 lg:py-40 items-center justify-center flex-col">

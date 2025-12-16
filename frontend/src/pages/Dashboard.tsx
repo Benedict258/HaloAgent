@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useDashboardStats } from "@/hooks/useDashboard";
 import { Sidebar, SidebarBody, SidebarLink } from "@/components/ui/sidebar";
-import { LayoutDashboard, UserCog, Settings, LogOut, MessageSquare, Bell } from "lucide-react";
+import { LayoutDashboard, Settings, LogOut, MessageSquare, Bell, Package } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,13 @@ export function Dashboard() {
             href: "/orders",
             icon: (
                 <FileTextIcon className="text-black h-5 w-5 shrink-0" />
+            ),
+        },
+        {
+            label: "Inventory",
+            href: "/inventory",
+            icon: (
+                <Package className="text-black h-5 w-5 shrink-0" />
             ),
         },
         {
@@ -173,6 +180,15 @@ const DashboardContent = ({ onOpenNotifications }: { onOpenNotifications: () => 
             className: "lg:col-start-1 lg:col-end-2 lg:row-start-1 lg:row-end-3",
         },
         {
+            Icon: Package,
+            name: "Inventory",
+            description: "Upload catalog items, attach photos, and toggle what shows up in chat.",
+            href: "/inventory",
+            cta: "Manage catalog",
+            background: <div className="absolute inset-0 bg-teal-50 opacity-20" />,
+            className: "lg:col-start-3 lg:col-end-3 lg:row-start-2 lg:row-end-3",
+        },
+        {
             Icon: GlobeIcon,
             name: "Revenue",
             description: loading ? "Loading..." : error ? "Access restricted" : `₦${totalRevenue.toLocaleString()} total`,
@@ -197,7 +213,7 @@ const DashboardContent = ({ onOpenNotifications }: { onOpenNotifications: () => 
             href: "/notifications",
             cta: "Open",
             background: <div className="absolute inset-0 bg-red-50 opacity-10" />,
-            className: "lg:col-start-3 lg:col-end-3 lg:row-start-2 lg:row-end-4",
+            className: "lg:col-start-3 lg:col-end-3 lg:row-start-3 lg:row-end-4",
         },
     ];
 
