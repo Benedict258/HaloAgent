@@ -3,22 +3,45 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 interface User {
     id: string
     email: string
-    [key: string]: any
+    phone_number: string
+    first_name: string
+    last_name: string
+    business_name?: string | null
+    business_id?: string | null
+    account_type: 'business' | 'user'
+    preferred_language?: string | null
+    is_verified?: boolean | null
+    created_at: string
+    [key: string]: unknown
 }
 
 interface AuthError {
     message: string
 }
 
+interface SignInOptions {
+    accountType?: 'business' | 'user'
+    phoneNumber?: string
+}
+
+interface SignUpMetadata {
+    account_type?: 'business' | 'user'
+    phone_number?: string
+    first_name?: string
+    last_name?: string
+    business_name?: string
+    business_handle?: string
+}
+
 interface AuthContextType {
     user: User | null
     loading: boolean
-    signUp: (email: string, password: string, metadata?: any) => Promise<{ error: AuthError | null }>
-    signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>
+    signUp: (email: string, password: string, metadata?: SignUpMetadata) => Promise<{ error: AuthError | null }>
+    signIn: (email: string, password: string, options?: SignInOptions) => Promise<{ error: AuthError | null }>
     signOut: () => Promise<void>
 }
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_URL = import.meta.env.VITE_API_URL || 'https://haloagent.onrender.com'
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
@@ -40,8 +63,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 if (res.ok) return res.json()
                 throw new Error('Invalid token')
             })
-            .then(data => {
+            .then((data: User) => {
                 setUser(data)
+                if (data.account_type === 'user' && data.phone_number) {
+                    localStorage.setItem('user_phone', data.phone_number)
+                }
             })
             .catch(() => {
                 localStorage.removeItem('auth_token')
@@ -52,15 +78,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }, [])
 
-    const signUp = async (email: string, password: string, metadata?: any) => {
+    const signUp = async (email: string, password: string, metadata?: SignUpMetadata) => {
         try {
+            const accountType = metadata?.account_type ?? 'business'
+            const trimmedFirstName = metadata?.first_name?.trim()
+            const trimmedLastName = metadata?.last_name?.trim()
+
             const payload = {
                 email,
                 password,
                 phone_number: metadata?.phone_number || '+234000000000',
-                first_name: metadata?.first_name || 'User',
-                last_name: metadata?.last_name || 'Name',
-                business_name: metadata?.business_name
+                first_name: trimmedFirstName || (accountType === 'business' ? 'Business' : 'User'),
+                last_name: trimmedLastName || (accountType === 'business' ? 'Owner' : 'Customer'),
+                business_name: accountType === 'business'
+                    ? (metadata?.business_name || 'New Business')
+                    : undefined,
+                account_type: accountType,
+                business_handle: metadata?.business_handle
             }
             
             const response = await fetch(`${API_URL}/auth/signup`, {
@@ -81,8 +115,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const userRes = await fetch(`${API_URL}/auth/me`, {
                     headers: { 'Authorization': `Bearer ${data.access_token}` }
                 })
-                const userData = await userRes.json()
+                const userData: User = await userRes.json()
                 setUser(userData)
+                if (userData.account_type === 'user' && userData.phone_number) {
+                    localStorage.setItem('user_phone', userData.phone_number)
+                }
             }
             return { error: null }
         } catch (error) {
@@ -90,14 +127,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
 
-    const signIn = async (email: string, password: string) => {
+    const signIn = async (email: string, password: string, options?: SignInOptions) => {
         try {
+            const payload = {
+                email,
+                password,
+                account_type: options?.accountType
+            }
             const response = await fetch(`${API_URL}/auth/login`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ email, password }),
+                body: JSON.stringify(payload),
             })
             const data = await response.json()
             if (!response.ok) {
@@ -109,8 +151,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const userRes = await fetch(`${API_URL}/auth/me`, {
                     headers: { 'Authorization': `Bearer ${data.access_token}` }
                 })
-                const userData = await userRes.json()
+                const userData: User = await userRes.json()
                 setUser(userData)
+
+                if (userData.account_type === 'user') {
+                    const phone = options?.phoneNumber || userData.phone_number
+                    if (phone) {
+                        localStorage.setItem('user_phone', phone)
+                    }
+                }
             }
             return { error: null }
         } catch (error) {
@@ -120,6 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const signOut = async () => {
         localStorage.removeItem('auth_token')
+        localStorage.removeItem('user_phone')
         setUser(null)
     }
 

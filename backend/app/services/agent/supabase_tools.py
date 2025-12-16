@@ -56,13 +56,19 @@ class SupabaseTools:
             
             contact_id = contact_result.data[0]["id"]
             
+            # Generate order number
+            import random
+            order_number = f"ORD-{random.randint(1000, 9999)}"
+            
             order_data = {
                 "contact_id": contact_id,
                 "business_id": business_id,
+                "order_number": order_number,
                 "items": items,
                 "total_amount": total,
                 "status": "pending_payment",
                 "fulfillment_type": delivery_type,
+                "channel": "whatsapp",
                 "created_at": datetime.utcnow().isoformat()
             }
             

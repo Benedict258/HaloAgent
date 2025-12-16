@@ -6,6 +6,11 @@ import LoginPage from "@/pages/LoginPage";
 import SignUpPage from "@/pages/SignUpPage";
 import Dashboard from "@/pages/Dashboard";
 import OrdersPage from "@/pages/OrdersPage";
+import CustomersPage from "@/pages/CustomersPage";
+import RevenuePage from "@/pages/RevenuePage";
+import UserChatPage from "@/pages/UserChatPage";
+import NotificationsPage from "@/pages/NotificationsPage";
+import SetupPage from "@/pages/SetupPage";
 
 function App() {
   return (
@@ -18,7 +23,7 @@ function App() {
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={["business"]}>
                 <Dashboard />
               </ProtectedRoute>
             }
@@ -26,8 +31,48 @@ function App() {
           <Route
             path="/orders"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={["business"]}>
                 <OrdersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/customers"
+            element={
+              <ProtectedRoute allowedRoles={["business"]}>
+                <CustomersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/revenue"
+            element={
+              <ProtectedRoute allowedRoles={["business"]}>
+                <RevenuePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/chat"
+            element={
+              <ProtectedRoute allowedRoles={["user"]}>
+                <UserChatPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute allowedRoles={["business"]}>
+                <NotificationsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/setup"
+            element={
+              <ProtectedRoute allowedRoles={["business"]}>
+                <SetupPage />
               </ProtectedRoute>
             }
           />

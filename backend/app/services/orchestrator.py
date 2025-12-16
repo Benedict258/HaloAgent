@@ -43,7 +43,7 @@ class MessageOrchestrator:
         await self._log_message(phone, message, message_id, contact_id, direction="IN", channel=channel)
         
         # 3. Build context for agent
-        context = f"Phone: {phone}, Business ID: {business_id}, Business Name: {business['business_name']}, Opt-in: {opt_in}"
+        context = f"Phone: {phone}, Business ID: {business_id}, Business Name: {business['business_name']}, Opt-in: {opt_in}, Channel: {channel}"
         if contact_name:
             context += f", Name: {contact_name}"
         
@@ -58,7 +58,13 @@ class MessageOrchestrator:
         # 4. Run agent (handles tool calls internally)
         try:
             from app.services.agent.core import agent
-            response_text = await agent.run(message, phone, context)
+            response_text = await agent.run(
+                message,
+                phone,
+                context,
+                business_id=business_id,
+                channel=channel,
+            )
             
             # Clean up any leaked technical language
             response_text = self._sanitize_response(response_text)

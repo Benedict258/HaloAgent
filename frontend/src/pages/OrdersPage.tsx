@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { API_URL } from '@/lib/supabase'
+import { BackButton } from '@/components/ui/back-button'
 
 interface Order {
   id: number
@@ -19,22 +20,44 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
+  const [error, setError] = useState<string | null>(null)
+
+  const authHeaders = (extra: Record<string, string> = {}) => {
+    const token = localStorage.getItem('auth_token')
+    if (!token) return null
+    return {
+      Authorization: `Bearer ${token}`,
+      ...extra,
+    }
+  }
 
   useEffect(() => {
     fetchOrders()
   }, [filter])
 
   const fetchOrders = async () => {
+    setLoading(true)
     try {
+      const headers = authHeaders()
+      if (!headers) {
+        setError('Please sign in again to load orders.')
+        setOrders([])
+        return
+      }
       const url = filter === 'all' 
         ? `${API_URL}/api/orders?business_id=sweetcrumbs_001`
         : `${API_URL}/api/orders?business_id=sweetcrumbs_001&status=${filter}`
-      const res = await fetch(url)
+      const res = await fetch(url, { headers })
+      if (!res.ok) {
+        throw new Error(`Failed to load orders (${res.status})`)
+      }
       const data = await res.json()
       setOrders(Array.isArray(data) ? data : [])
+      setError(null)
     } catch (err) {
       console.error('Failed to fetch orders:', err)
       setOrders([])
+      setError(err instanceof Error ? err.message : 'Unable to load orders right now.')
     } finally {
       setLoading(false)
     }
@@ -42,9 +65,14 @@ export default function OrdersPage() {
 
   const approvePayment = async (orderId: string) => {
     try {
+      const headers = authHeaders({ 'Content-Type': 'application/json' })
+      if (!headers) {
+        setError('Please sign in again before approving payments.')
+        return
+      }
       await fetch(`${API_URL}/api/orders/${orderId}/approve-payment`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ approved: true })
       })
       fetchOrders()
@@ -55,9 +83,14 @@ export default function OrdersPage() {
 
   const updateStatus = async (orderId: string, status: string) => {
     try {
+      const headers = authHeaders({ 'Content-Type': 'application/json' })
+      if (!headers) {
+        setError('Please sign in again before updating orders.')
+        return
+      }
       await fetch(`${API_URL}/api/orders/${orderId}/update-status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ status })
       })
       fetchOrders()
@@ -82,9 +115,12 @@ export default function OrdersPage() {
   return (
     <div className="p-6 bg-white min-h-screen">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-black">Orders</h1>
-          <p className="text-gray-600 mt-1">Manage customer orders and payments</p>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-bold text-black">Orders</h1>
+            <p className="text-gray-600 mt-1">Manage customer orders and payments</p>
+          </div>
+          <BackButton label="Back to overview" className="text-sm" />
         </div>
 
         {/* Filter Tabs */}
@@ -107,6 +143,8 @@ export default function OrdersPage() {
         {/* Orders List */}
         {loading ? (
           <div className="text-center py-12 text-gray-600">Loading orders...</div>
+        ) : error ? (
+          <div className="text-center py-12 text-red-600">{error}</div>
         ) : orders.length === 0 ? (
           <div className="text-center py-12 text-gray-600">No orders found</div>
         ) : (

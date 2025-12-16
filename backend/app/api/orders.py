@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from app.db.supabase_client import supabase
 from datetime import datetime
 import logging
+from app.api.auth import require_business_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -15,9 +16,10 @@ class PaymentApproval(BaseModel):
     notes: str = None
 
 @router.get("/orders")
-async def get_orders(business_id: str = "sweetcrumbs_001", status: str = None):
+async def get_orders(status: str = None, current_user: dict = Depends(require_business_user)):
     """Get all orders for a business"""
     try:
+        business_id = current_user["business_id"]
         query = supabase.table("orders").select("*").eq("business_id", business_id)
         if status and status != 'all':
             query = query.eq("status", status)
@@ -46,21 +48,39 @@ async def get_orders(business_id: str = "sweetcrumbs_001", status: str = None):
         return []
 
 @router.get("/orders/{order_id}")
-async def get_order(order_id: str):
+async def get_order(order_id: str, current_user: dict = Depends(require_business_user)):
     """Get single order details"""
     try:
-        result = supabase.table("orders").select("*, contacts(name, phone)").eq("id", order_id).single().execute()
+        business_id = current_user["business_id"]
+        result = (
+            supabase
+            .table("orders")
+            .select("*, contacts(name, phone)")
+            .eq("id", order_id)
+            .eq("business_id", business_id)
+            .single()
+            .execute()
+        )
         return result.data
     except Exception as e:
         logger.error(f"Get order error: {e}")
         raise HTTPException(status_code=404, detail="Order not found")
 
 @router.post("/orders/{order_id}/approve-payment")
-async def approve_payment(order_id: str, approval: PaymentApproval):
-    """Owner approves/rejects payment"""
+async def approve_payment(order_id: str, approval: PaymentApproval, current_user: dict = Depends(require_business_user)):
+    """Owner approves/rejects payment - AI sends notification to customer"""
     try:
-        # Get order
-        order = supabase.table("orders").select("*, contacts(phone)").eq("id", order_id).single().execute()
+        business_id = current_user["business_id"]
+        # Get order with contact info
+        order = (
+            supabase
+            .table("orders")
+            .select("*, contacts(phone_number)")
+            .eq("id", order_id)
+            .eq("business_id", business_id)
+            .single()
+            .execute()
+        )
         if not order.data:
             raise HTTPException(status_code=404, detail="Order not found")
         
@@ -72,28 +92,47 @@ async def approve_payment(order_id: str, approval: PaymentApproval):
             "payment_notes": approval.notes
         }).eq("id", order_id).execute()
         
-        # Send WhatsApp notification
-        from app.services.whatsapp import whatsapp_service
-        phone = order.data["contacts"]["phone"]
+        # Get order details for message
+        items = order.data.get("items", [])
+        if isinstance(items, str):
+            import json
+            items = json.loads(items)
+        
+        items_text = ", ".join([item["name"] for item in items]) if items else "your order"
+        total = order.data.get("total_amount", 0)
+        
+        # Send message via AI agent
+        phone = order.data["contacts"]["phone_number"]
         
         if approval.approved:
-            message = f"✅ Payment confirmed! Your order #{order_id} is now being prepared. We'll notify you when it's ready! 🎂"
+            message = f"✅ Great news! Your payment has been confirmed.\n\nOrder #{order_id}\nItems: {items_text}\nTotal: ₦{total:,}\n\nWe're starting to prepare your order now. You'll get another message when it's ready for pickup! 🎂"
         else:
-            message = f"❌ Payment verification failed for order #{order_id}. {approval.notes or 'Please contact us.'}"
+            message = f"❌ We couldn't verify your payment for order #{order_id}. {approval.notes or 'Please contact us for assistance.'}"
         
-        await whatsapp_service.send_message(phone, message)
+        # Send via Twilio (WhatsApp)
+        from app.api.webhooks import send_twilio_message
+        await send_twilio_message(phone, message)
         
-        return {"success": True, "status": new_status}
+        return {"success": True, "status": new_status, "message_sent": True}
     except Exception as e:
         logger.error(f"Approve payment error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/orders/{order_id}/update-status")
-async def update_order_status(order_id: str, update: OrderStatusUpdate):
-    """Owner updates order status (preparing, ready, completed)"""
+async def update_order_status(order_id: str, update: OrderStatusUpdate, current_user: dict = Depends(require_business_user)):
+    """Owner updates order status (preparing, ready, completed) - AI notifies customer"""
     try:
-        # Get order
-        order = supabase.table("orders").select("*, contacts(phone)").eq("id", order_id).single().execute()
+        business_id = current_user["business_id"]
+        # Get order with contact info
+        order = (
+            supabase
+            .table("orders")
+            .select("*, contacts(phone_number)")
+            .eq("id", order_id)
+            .eq("business_id", business_id)
+            .single()
+            .execute()
+        )
         if not order.data:
             raise HTTPException(status_code=404, detail="Order not found")
         
@@ -106,19 +145,28 @@ async def update_order_status(order_id: str, update: OrderStatusUpdate):
         
         supabase.table("orders").update(updates).eq("id", order_id).execute()
         
-        # Send WhatsApp notification
-        from app.services.whatsapp import whatsapp_service
-        phone = order.data["contacts"]["phone"]
+        # Get order details
+        items = order.data.get("items", [])
+        if isinstance(items, str):
+            import json
+            items = json.loads(items)
+        items_text = ", ".join([item["name"] for item in items]) if items else "your order"
+        
+        # Send WhatsApp notification via Twilio
+        phone = order.data["contacts"]["phone_number"]
         
         messages = {
-            "preparing": f"👨‍🍳 Your order #{order_id} is being prepared! We'll let you know when it's ready.",
-            "ready_for_pickup": f"🎉 Great news! Your order #{order_id} is ready for pickup!\n\n📍 Location: [Business Address]\n⏰ Pickup Hours: 9am - 6pm\n\nReply 'PICKED UP' when you collect it.",
-            "out_for_delivery": f"🚚 Your order #{order_id} is out for delivery! It should arrive soon.",
-            "completed": f"✅ Order #{order_id} completed! Thank you for your business. How was your experience? (Reply with 1-5 stars)"
+            "preparing": f"👨‍🍳 Good news! We've started preparing your order.\n\nOrder #{order_id}\nItems: {items_text}\n\nWe'll notify you as soon as it's ready!",
+            "ready_for_pickup": f"🎉 Your order is ready for pickup!\n\nOrder #{order_id}\nItems: {items_text}\n\n📍 Pickup Location: [Your Business Address]\n⏰ Hours: 9am - 6pm\n\nSee you soon!",
+            "out_for_delivery": f"🚚 Your order #{order_id} is on the way! It should arrive soon.",
+            "completed": f"✅ Thank you for your order!\n\nOrder #{order_id} is now complete. We hope you enjoyed {items_text}!\n\nHow was your experience? Reply with a rating (1-5 stars) ⭐"
         }
         
-        message = messages.get(update.status, f"Order #{order_id} status updated to {update.status}")
-        await whatsapp_service.send_message(phone, message)
+        message = messages.get(update.status, f"Order #{order_id} status: {update.status}")
+        
+        # Send via Twilio
+        from app.api.webhooks import send_twilio_message
+        await send_twilio_message(phone, message)
         
         # Award loyalty points on completion
         if update.status == "completed":
@@ -126,11 +174,14 @@ async def update_order_status(order_id: str, update: OrderStatusUpdate):
             total = order.data["total_amount"]
             points = int(total / 100)  # 1 point per ₦100
             
+            current_contact = supabase.table("contacts").select("loyalty_points").eq("id", contact_id).single().execute()
+            current_points = current_contact.data.get("loyalty_points", 0) if current_contact.data else 0
+            
             supabase.table("contacts").update({
-                "loyalty_points": supabase.table("contacts").select("loyalty_points").eq("id", contact_id).single().execute().data["loyalty_points"] + points
+                "loyalty_points": current_points + points
             }).eq("id", contact_id).execute()
         
-        return {"success": True, "status": update.status}
+        return {"success": True, "status": update.status, "message_sent": True}
     except Exception as e:
         logger.error(f"Update status error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

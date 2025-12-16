@@ -2,15 +2,20 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
+import { BackButton } from '@/components/ui/back-button'
 
 export default function SignUpPage() {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [confirmPassword, setConfirmPassword] = useState('')
     const [businessName, setBusinessName] = useState('')
+    const [businessHandle, setBusinessHandle] = useState('')
+    const [phoneNumber, setPhoneNumber] = useState('')
+    const [firstName, setFirstName] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
     const [success, setSuccess] = useState(false)
+    const [accountType, setAccountType] = useState<'business' | 'user'>('business')
     const { signUp } = useAuth()
     const navigate = useNavigate()
 
@@ -28,19 +33,39 @@ export default function SignUpPage() {
             return
         }
 
+        if (accountType === 'business' && !businessName.trim()) {
+            setError('Business name is required for business accounts')
+            return
+        }
+
+        if (accountType === 'user' && !phoneNumber.trim()) {
+            setError('Phone number is required for user accounts')
+            return
+        }
+
         setLoading(true)
 
         const { error } = await signUp(email, password, {
-            business_name: businessName,
+            business_name: accountType === 'business' ? businessName : undefined,
+            phone_number: phoneNumber || undefined,
+            account_type: accountType,
+            first_name: firstName.trim() || undefined,
+            business_handle:
+                accountType === 'business' && businessHandle.trim() ? businessHandle.trim() : undefined,
         })
 
         if (error) {
             setError(error.message)
             setLoading(false)
-        } else {
-            setSuccess(true)
-            setTimeout(() => navigate('/login'), 2000)
+            return
         }
+
+        if (accountType === 'user' && phoneNumber.trim()) {
+            localStorage.setItem('user_phone', phoneNumber.trim())
+        }
+
+        setSuccess(true)
+        setTimeout(() => navigate('/login'), 2000)
     }
 
     if (success) {
@@ -62,10 +87,41 @@ export default function SignUpPage() {
     return (
         <div className="min-h-screen flex items-center justify-center bg-white py-12">
             <div className="w-full max-w-md p-8">
+                <div className="mb-4">
+                    <BackButton to="/" />
+                </div>
+
                 <div className="mb-8 text-center">
                     <div className="h-12 w-12 bg-brand rounded-lg mx-auto mb-4"></div>
                     <h1 className="text-3xl font-bold text-black">Create Account</h1>
-                    <p className="text-gray-600 mt-2">Start managing your business with AI</p>
+                    <p className="text-gray-600 mt-2">
+                        {accountType === 'business'
+                            ? 'Start managing your business with AI'
+                            : 'Sign up to chat with businesses and track orders'}
+                    </p>
+                </div>
+
+                <div className="mb-6">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">I am signing up as</p>
+                    <div className="grid grid-cols-2 gap-2">
+                        {[
+                            { key: 'business', label: 'Business Owner' },
+                            { key: 'user', label: 'User' },
+                        ].map(({ key, label }) => (
+                            <button
+                                key={key}
+                                type="button"
+                                onClick={() => setAccountType(key as 'business' | 'user')}
+                                className={`rounded-lg border px-4 py-3 text-sm font-medium transition-colors ${
+                                    accountType === key
+                                        ? 'border-brand bg-brand/10 text-brand'
+                                        : 'border-gray-200 text-gray-600 hover:text-black'
+                                }`}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
@@ -75,18 +131,34 @@ export default function SignUpPage() {
                         </div>
                     )}
 
+                    {accountType === 'business' && (
+                        <div>
+                            <label htmlFor="businessName" className="block text-sm font-medium text-black mb-2">
+                                Business Name
+                            </label>
+                            <input
+                                id="businessName"
+                                type="text"
+                                value={businessName}
+                                onChange={(e) => setBusinessName(e.target.value)}
+                                required
+                                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                                placeholder="Your Business Name"
+                            />
+                        </div>
+                    )}
+
                     <div>
-                        <label htmlFor="businessName" className="block text-sm font-medium text-black mb-2">
-                            Business Name
+                        <label htmlFor="firstName" className="block text-sm font-medium text-black mb-2">
+                            First Name
                         </label>
                         <input
-                            id="businessName"
+                            id="firstName"
                             type="text"
-                            value={businessName}
-                            onChange={(e) => setBusinessName(e.target.value)}
-                            required
+                            value={firstName}
+                            onChange={(e) => setFirstName(e.target.value)}
                             className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
-                            placeholder="Your Business Name"
+                            placeholder="Ada"
                         />
                     </div>
 
@@ -102,6 +174,21 @@ export default function SignUpPage() {
                             required
                             className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
                             placeholder="you@example.com"
+                        />
+                    </div>
+
+                    <div>
+                        <label htmlFor="phoneNumber" className="block text-sm font-medium text-black mb-2">
+                            Phone Number {accountType === 'user' ? '' : '(optional)'}
+                        </label>
+                        <input
+                            id="phoneNumber"
+                            type="tel"
+                            value={phoneNumber}
+                            onChange={(e) => setPhoneNumber(e.target.value)}
+                            required={accountType === 'user'}
+                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                            placeholder="+234..."
                         />
                     </div>
 
@@ -134,6 +221,23 @@ export default function SignUpPage() {
                             placeholder="••••••••"
                         />
                     </div>
+
+                    {accountType === 'business' && (
+                        <div>
+                            <label htmlFor="businessHandle" className="block text-sm font-medium text-black mb-2">
+                                Business Username / ID (optional)
+                            </label>
+                            <input
+                                id="businessHandle"
+                                type="text"
+                                value={businessHandle}
+                                onChange={(e) => setBusinessHandle(e.target.value)}
+                                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand focus:border-transparent"
+                                placeholder="e.g. sweetcrumbs"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Used as your business ID in the web app.</p>
+                        </div>
+                    )}
 
                     <Button
                         type="submit"

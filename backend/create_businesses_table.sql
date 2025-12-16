@@ -8,11 +8,16 @@ CREATE TABLE IF NOT EXISTS public.businesses (
     default_language VARCHAR(10) DEFAULT 'en',
     supported_languages JSONB DEFAULT '["en"]'::jsonb,
     inventory JSONB DEFAULT '[]'::jsonb,
+    payment_instructions JSONB DEFAULT '{}'::jsonb,
     business_hours JSONB,
     active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Ensure legacy tables gain payment instructions column
+ALTER TABLE public.businesses
+ADD COLUMN IF NOT EXISTS payment_instructions JSONB DEFAULT '{}'::jsonb;
 
 -- Create index on whatsapp_number for fast lookups
 CREATE INDEX IF NOT EXISTS idx_businesses_whatsapp ON public.businesses(whatsapp_number);
@@ -45,6 +50,7 @@ INSERT INTO public.businesses (
     default_language,
     supported_languages,
     inventory,
+    payment_instructions,
     active
 ) VALUES (
     'sweetcrumbs_001',
@@ -57,6 +63,12 @@ INSERT INTO public.businesses (
         {"name": "Vanilla Cake", "price": 4500, "available": true, "description": "Classic vanilla"},
         {"name": "Red Velvet Cake", "price": 5500, "available": true, "description": "Smooth red velvet"}
     ]'::jsonb,
+    '{
+        "bank": "GTBank",
+        "account_name": "SweetCrumbs Cakes",
+        "account_number": "0123456789",
+        "notes": "Send a quick WhatsApp message once you transfer so we can confirm."
+    }'::jsonb,
     true
 ) ON CONFLICT (business_id) DO NOTHING;
 
