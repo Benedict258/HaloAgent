@@ -1,12 +1,14 @@
 -- Users table
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    phone_number VARCHAR(20) UNIQUE NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    phone_number VARCHAR(32) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     first_name VARCHAR(100),
     last_name VARCHAR(100),
     business_name VARCHAR(200),
+    business_id VARCHAR(255) REFERENCES public.businesses(business_id),
+    account_type VARCHAR(20) NOT NULL DEFAULT 'business',
     preferred_language VARCHAR(10) DEFAULT 'en',
     is_active BOOLEAN DEFAULT true,
     is_verified BOOLEAN DEFAULT false,
@@ -18,14 +20,41 @@ CREATE TABLE users (
     business_hours TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    last_login TIMESTAMP WITH TIME ZONE
+    last_login TIMESTAMP WITH TIME ZONE,
+    UNIQUE (email, account_type),
+    UNIQUE (phone_number, account_type)
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number);
+CREATE INDEX IF NOT EXISTS idx_users_business_id ON users(business_id);
+CREATE INDEX IF NOT EXISTS idx_users_account_type ON users(account_type);
+
+-- Businesses table
+CREATE TABLE businesses (
+    id SERIAL PRIMARY KEY,
+    business_id VARCHAR(255) UNIQUE NOT NULL,
+    business_name VARCHAR(255) NOT NULL,
+    whatsapp_number VARCHAR(50) UNIQUE NOT NULL,
+    owner_user_id INTEGER REFERENCES users(id),
+    default_language VARCHAR(10) DEFAULT 'en',
+    supported_languages JSONB DEFAULT '["en"]'::jsonb,
+    inventory JSONB DEFAULT '[]'::jsonb,
+    payment_instructions JSONB DEFAULT '{}'::jsonb,
+    business_hours JSONB,
+    active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_businesses_whatsapp ON businesses(whatsapp_number);
+CREATE INDEX IF NOT EXISTS idx_businesses_business_id ON businesses(business_id);
 
 -- Contacts table
 CREATE TABLE contacts (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
-    phone_number VARCHAR(20) NOT NULL,
+    phone_number VARCHAR(32) NOT NULL,
     name VARCHAR(200),
     preferred_language VARCHAR(10) DEFAULT 'en',
     loyalty_points INTEGER DEFAULT 0,
@@ -48,7 +77,7 @@ CREATE TABLE orders (
     total_amount DECIMAL(10,2) NOT NULL,
     status VARCHAR(20) DEFAULT 'pending',
     delivery_address TEXT,
-    delivery_phone VARCHAR(20),
+    delivery_phone VARCHAR(32),
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -91,4 +120,14 @@ CREATE TABLE rewards (
     description TEXT,
     expires_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Notification read receipts
+CREATE TABLE notification_reads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_id VARCHAR(100) NOT NULL,
+    notification_type VARCHAR(50) NOT NULL,
+    entity_id INTEGER NOT NULL,
+    read_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE (business_id, notification_type, entity_id)
 );

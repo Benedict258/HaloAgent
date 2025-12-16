@@ -38,6 +38,28 @@ def create_tables():
     );
     """
     
+    # Businesses table
+    businesses_sql = """
+    CREATE TABLE IF NOT EXISTS businesses (
+        id SERIAL PRIMARY KEY,
+        business_id VARCHAR(255) UNIQUE NOT NULL,
+        business_name VARCHAR(255) NOT NULL,
+        whatsapp_number VARCHAR(50) UNIQUE NOT NULL,
+        owner_user_id INTEGER REFERENCES users(id),
+        default_language VARCHAR(10) DEFAULT 'en',
+        supported_languages JSONB DEFAULT '["en"]'::jsonb,
+        inventory JSONB DEFAULT '[]'::jsonb,
+        payment_instructions JSONB DEFAULT '{}'::jsonb,
+        business_hours JSONB,
+        active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_businesses_whatsapp ON businesses(whatsapp_number);
+    CREATE INDEX IF NOT EXISTS idx_businesses_business_id ON businesses(business_id);
+    """
+
     # Contacts table
     contacts_sql = """
     CREATE TABLE IF NOT EXISTS contacts (
@@ -122,6 +144,7 @@ def create_tables():
     
     tables = [
         ("users", users_sql),
+        ("businesses", businesses_sql),
         ("contacts", contacts_sql),
         ("orders", orders_sql),
         ("message_logs", messages_sql),

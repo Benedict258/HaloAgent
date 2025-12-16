@@ -13,6 +13,7 @@ class Business(Base):
     default_language = Column(String, default="en")
     supported_languages = Column(JSON, default=["en"])  # ["en", "yo", "ha", "ig"]
     inventory = Column(JSON, nullable=True)  # Product catalog
+    payment_instructions = Column(JSON, nullable=True)  # Bank or wallet details shared with customers
     business_hours = Column(JSON, nullable=True)
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -17,7 +17,7 @@ class MetaAIService:
         else:
             self.api_key = settings.META_AI_API_KEY
             self.endpoint = settings.META_AI_ENDPOINT
-            self.model = "llama-3.3-70b-versatile"
+            self.model = "llama-3.3-70b-versatile"  # Smaller, faster, higher free limits
         
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",

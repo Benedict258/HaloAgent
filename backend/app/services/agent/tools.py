@@ -132,7 +132,7 @@ class AgentTools:
         """Get business inventory from database"""
         return await supabase_tools.get_business_inventory(business_id)
     
-    async def send_product_with_image(self, phone: str, product_name: str, business_id: str) -> str:
+    async def send_product_with_image(self, phone: str, product_name: str, business_id: str, channel: str = "whatsapp") -> str:
         """Send product details with image to customer"""
         try:
             # Get inventory
@@ -142,24 +142,37 @@ class AgentTools:
             if inventory_data.get("status") != "success":
                 return json.dumps({"status": "error", "message": "Could not fetch inventory"})
             
-            # Find product
             products = inventory_data.get("inventory", [])
             product = next((p for p in products if p["name"].lower() == product_name.lower()), None)
             
             if not product:
                 return json.dumps({"status": "error", "message": f"Product '{product_name}' not found"})
             
-            # Send image
-            success = await media_service.send_product_image(phone, product)
+            product_info = {
+                "name": product.get("name"),
+                "price": product.get("price"),
+                "description": product.get("description"),
+                "available": product.get("available", True)
+            }
             
-            if success:
-                return json.dumps({"status": "success", "message": f"Sent {product_name} with image"})
-            return json.dumps({"status": "error", "message": "Failed to send image"})
+            media_status = "skipped"
+            if channel.lower() in {"whatsapp", "sms"}:
+                try:
+                    await media_service.send_product_image(phone, product)
+                    media_status = "sent"
+                except Exception:
+                    media_status = "not_sent"
+            
+            return json.dumps({
+                "status": "success",
+                "media_status": media_status,
+                "product": product_info
+            })
             
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)})
     
-    async def send_all_products(self, phone: str, business_id: str) -> str:
+    async def send_all_products(self, phone: str, business_id: str, channel: str = "whatsapp") -> str:
         """Send all products with images (one message per product)"""
         try:
             import logging
@@ -183,15 +196,29 @@ class AgentTools:
             if not products:
                 return json.dumps({"status": "error", "message": "No products available"})
             
-            # Send each product
-            logger.info(f"Sending {len(products)} products to {phone}")
-            sent_count = await media_service.send_multiple_products(phone, products, channel="twilio")
-            logger.info(f"Sent {sent_count} products successfully")
+            summary = [
+                {
+                    "name": p.get("name"),
+                    "price": p.get("price"),
+                    "description": p.get("description"),
+                    "available": p.get("available", True)
+                }
+                for p in products
+            ]
+            
+            sent_count = 0
+            if channel.lower() in {"whatsapp", "sms"}:
+                try:
+                    sent_count = await media_service.send_multiple_products(phone, products, channel="twilio")
+                except Exception:
+                    sent_count = 0
             
             return json.dumps({
                 "status": "success",
-                "message": f"Sent {sent_count} products with images",
-                "count": sent_count
+                "message": f"Shared {len(products)} products",
+                "count": len(products),
+                "media_sent": sent_count,
+                "products": summary
             })
             
         except Exception as e:
@@ -303,7 +330,8 @@ class AgentTools:
                     "properties": {
                         "phone": {"type": "string", "description": "Customer phone number"},
                         "product_name": {"type": "string", "description": "Name of the product"},
-                        "business_id": {"type": "string", "description": "Business ID"}
+                        "business_id": {"type": "string", "description": "Business ID"},
+                        "channel": {"type": "string", "description": "Channel invoking the tool (web, whatsapp, sms)"}
                     },
                     "required": ["phone", "product_name", "business_id"]
                 }
@@ -315,7 +343,8 @@ class AgentTools:
                     "type": "object",
                     "properties": {
                         "phone": {"type": "string", "description": "Customer phone number"},
-                        "business_id": {"type": "string", "description": "Business ID"}
+                        "business_id": {"type": "string", "description": "Business ID"},
+                        "channel": {"type": "string", "description": "Channel invoking the tool (web, whatsapp, sms)"}
                     },
                     "required": ["phone", "business_id"]
                 }

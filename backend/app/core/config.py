@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     DEBUG: str = "True"
     RETENTION_DAYS: int = 90
     USE_EMOJIS: str = "True"
+    CORS_ALLOW_ORIGINS: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+    ]
     
     # Voice services
     DEEPGRAM_API_KEY: Optional[str] = None

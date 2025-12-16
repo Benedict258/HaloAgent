@@ -11,7 +11,13 @@ async def test_simple():
     
     # Test 1: Greeting
     print("User: hi")
-    response = await agent.run("hi", phone, "First time user")
+    response = await agent.run(
+        "hi",
+        phone,
+        "First time user",
+        business_id="sweetcrumbs_001",
+        channel="test",
+    )
     print(f"Agent: {response}\n")
     
     # Verify no technical language
