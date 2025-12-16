@@ -296,24 +296,33 @@ def _collect_business_lookup_values(business_id: Optional[str], current_user: di
     return lookup_values
 
 
+SELECT_COLUMNS = "business_id,business_name,owner_user_id,inventory"
+
+
 def _load_business_record(supabase, business_id: str, current_user: dict) -> Dict[str, Any]:
     lookup_values = _collect_business_lookup_values(business_id, current_user)
 
-    def _fetch(filter_method: str, value: str):
-        query = supabase.table("businesses").select("business_id,owner_user_id,inventory")
+    def _fetch(filter_method: str, column: str, value: str):
+        query = supabase.table("businesses").select(SELECT_COLUMNS)
         method = getattr(query, filter_method)
-        return method("business_id", value).execute()
+        return method(column, value).execute()
 
     last_error: Optional[Exception] = None
     for candidate in lookup_values:
         if not candidate:
             continue
         try:
-            res = _fetch("eq", candidate)
+            res = _fetch("eq", "business_id", candidate)
             if res.data:
                 return res.data[0]
             pattern = candidate if "%" in candidate else candidate
-            res = _fetch("ilike", pattern)
+            res = _fetch("ilike", "business_id", pattern)
+            if res.data:
+                return res.data[0]
+            res = _fetch("ilike", "business_id", f"%{candidate}%")
+            if res.data:
+                return res.data[0]
+            res = _fetch("ilike", "business_name", f"%{candidate}%")
             if res.data:
                 return res.data[0]
         except Exception as exc:  # pragma: no cover
@@ -326,7 +335,7 @@ def _load_business_record(supabase, business_id: str, current_user: dict) -> Dic
             res = (
                 supabase
                 .table("businesses")
-                .select("business_id,owner_user_id,inventory")
+                .select(SELECT_COLUMNS)
                 .eq("owner_user_id", owner_id)
                 .execute()
             )
