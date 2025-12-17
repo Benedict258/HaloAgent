@@ -28,11 +28,11 @@ class MarkNotificationsRead(BaseModel):
 
 @router.post("/orders/{order_id}/notify-payment")
 async def notify_payment(order_id: int, data: PaymentNotification):
-    """Customer notifies they have paid - moves order to payment_pending_review"""
+    """Customer notifies they have paid - moves order to awaiting_confirmation"""
     try:
         # Update order status
         update_data = {
-            "status": "payment_pending_review",
+            "status": "awaiting_confirmation",
             "payment_method": data.payment_method,
             "payment_receipt_url": data.receipt_url,
             "payment_notes": data.notes,
@@ -50,7 +50,7 @@ async def notify_payment(order_id: int, data: PaymentNotification):
         return {
             "status": "success",
             "message": "Payment notification sent to business owner",
-            "order_status": "payment_pending_review"
+            "order_status": "awaiting_confirmation"
         }
     
     except Exception as e:

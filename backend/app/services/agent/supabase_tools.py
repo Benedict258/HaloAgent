@@ -66,10 +66,10 @@ class SupabaseTools:
             
             contact_id = contact_result.data[0]["id"]
             
-            # Generate order number and payment reference
+            # Generate order number and align payment reference with order id
             import random
             order_number = f"ORD-{random.randint(1000, 9999)}"
-            payment_reference = self._generate_payment_reference(order_number)
+            payment_reference = order_number
             
             order_data = {
                 "contact_id": contact_id,

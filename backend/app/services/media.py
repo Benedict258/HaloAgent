@@ -4,6 +4,7 @@ Media service for sending images via WhatsApp
 import httpx
 from app.core.config import settings
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +23,18 @@ class MediaService:
         }
         """
         
-        # Default to Twilio for now since that's what we're using
-        if channel == "meta":
-            return await self._send_whatsapp_image(to_number, product)
-        else:
-            return await self._send_twilio_image(to_number, product)
+        image_url = self._resolve_image_url(product)
+        if not image_url:
+            logger.warning("No usable image url for product %s", product.get("name"))
+            return False
+
+        normalized_channel = (channel or "twilio").lower()
+
+        if normalized_channel == "meta":
+            return await self._send_whatsapp_image(to_number, product, image_url)
+        return await self._send_twilio_image(to_number, product, image_url)
     
-    async def _send_whatsapp_image(self, to_number: str, product: dict):
+    async def _send_whatsapp_image(self, to_number: str, product: dict, image_url: str):
         """Send image via Meta WhatsApp Business API"""
         try:
             url = f"https://graph.facebook.com/v18.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
@@ -47,7 +53,7 @@ class MediaService:
                 "to": to_number,
                 "type": "image",
                 "image": {
-                    "link": product.get("image_url"),
+                    "link": image_url,
                     "caption": caption
                 }
             }
@@ -66,7 +72,7 @@ class MediaService:
             logger.error(f"Error sending WhatsApp image: {e}")
             return False
     
-    async def _send_twilio_image(self, to_number: str, product: dict):
+    async def _send_twilio_image(self, to_number: str, product: dict, image_url: str):
         """Send image via Twilio WhatsApp"""
         try:
             from twilio.rest import Client
@@ -75,7 +81,7 @@ class MediaService:
                 return False
             
             client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-            sandbox = settings.TWILIO_PHONE_NUMBER
+            sandbox = settings.TWILIO_WHATSAPP_SANDBOX_NUMBER or settings.TWILIO_PHONE_NUMBER
             
             # Build message body
             body = f"*{product['name']}*\n\n"
@@ -87,7 +93,7 @@ class MediaService:
                 from_=f"whatsapp:{sandbox}",
                 to=f"whatsapp:{to_number}",
                 body=body,
-                media_url=[product.get("image_url")]
+                media_url=[image_url]
             )
             
             logger.info(f"Twilio image sent: {message.sid}")
@@ -102,7 +108,8 @@ class MediaService:
         sent_count = 0
         
         for product in products:
-            if product.get("image_url"):
+            image_url = self._resolve_image_url(product)
+            if image_url:
                 success = await self.send_product_image(to_number, product, channel)
                 if success:
                     sent_count += 1
@@ -111,5 +118,17 @@ class MediaService:
                     await asyncio.sleep(1)
         
         return sent_count
+
+    def _resolve_image_url(self, product: dict) -> Optional[str]:
+        url = product.get("image_url")
+        if not url:
+            image_urls = product.get("image_urls") or []
+            if isinstance(image_urls, list) and image_urls:
+                url = next((link for link in image_urls if isinstance(link, str) and link.strip()), None)
+        if isinstance(url, str):
+            candidate = url.strip()
+            if candidate.lower().startswith(("http://", "https://")):
+                return candidate
+        return None
 
 media_service = MediaService()

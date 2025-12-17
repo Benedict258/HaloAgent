@@ -19,7 +19,7 @@ class PaymentService:
         receipt_analysis: Optional[Dict[str, Any]] = None,
         payment_method: str = "bank_transfer",
     ) -> Optional[Dict[str, Any]]:
-        """Attach receipt + move most recent pending order to payment_pending_review."""
+        """Attach receipt + move the current pending order to awaiting_confirmation."""
         try:
             contact = (
                 supabase
@@ -68,7 +68,7 @@ class PaymentService:
                 return None
 
             update_payload = {
-                "status": "payment_pending_review",
+                "status": "awaiting_confirmation",
                 "payment_method": payment_method,
                 "payment_notes": note,
                 "updated_at": datetime.utcnow().isoformat(),

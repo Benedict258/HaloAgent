@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
-from app.db.supabase_client import supabase
+from app.db.supabase_client import supabase, supabase_admin
 from datetime import datetime
 import logging
 from app.api.auth import require_business_user
@@ -25,8 +25,9 @@ async def get_payment_reviews(current_user: dict = Depends(require_business_user
     """Return orders waiting for payment confirmation with latest vision analysis."""
     try:
         business_id = current_user["business_id"]
+        client = supabase_admin or supabase
         pending_orders = (
-            supabase
+            client
             .table("orders")
             .select(
                 "id, order_number, total_amount, status, payment_reference, payment_receipt_url, "
@@ -44,7 +45,7 @@ async def get_payment_reviews(current_user: dict = Depends(require_business_user
         vision_map = {}
         if order_ids:
             vision_rows = (
-                supabase
+                client
                 .table("vision_analysis_results")
                 .select("id, order_id, analysis_type, media_url, analysis, created_at")
                 .in_("order_id", order_ids)
@@ -212,7 +213,7 @@ async def upload_order_receipt(order_id: str, receipt: UploadFile = File(...), c
                 "payment_receipt_url": public_url,
                 "payment_receipt_uploaded_at": datetime.utcnow().isoformat(),
                 "payment_notes": "Receipt uploaded via dashboard",
-                "status": "payment_pending_review",
+                "status": "awaiting_confirmation",
                 "updated_at": datetime.utcnow().isoformat()
             })
             .eq("id", order_pk)
