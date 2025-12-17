@@ -639,7 +639,7 @@ class HaloAgent:
                             "status": "awaiting_confirmation",
                             "payment_notes": f"Customer shared payment reference via chat on {datetime.utcnow().isoformat()}",
                             "updated_at": datetime.utcnow().isoformat()
-                        ).eq("id", order_row["id"]).execute()
+                        }).eq("id", order_row["id"]).execute()
                         return (
                             f"Perfect! I've let the team know about your payment for Order #{order_number}. "
                             "They'll confirm it shortly! 🙏"
