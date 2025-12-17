@@ -1,104 +1,48 @@
 """
 Voice service for speech-to-text and text-to-speech
 """
-import httpx
-import os
-import io
-from app.core.config import settings
+import asyncio
 import logging
+import os
+from typing import Optional
+from urllib.parse import urlparse
+
+import httpx
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class VoiceService:
     
-    async def transcribe_audio(self, audio_url: str, content_type: str = "audio/ogg") -> str:
-        """
-        Transcribe audio using AssemblyAI
-        """
+    async def transcribe_audio(
+        self,
+        audio_url: str,
+        content_type: str = "audio/ogg",
+        *,
+        source: str = "twilio",
+        message_sid: Optional[str] = None,
+        bearer_token: Optional[str] = None,
+    ) -> str:
+        """Transcribe WhatsApp/Twilio voice notes via AssemblyAI."""
+
         try:
-            logger.info(f"Starting transcription for {audio_url}")
-            
-            # Download audio with proper Twilio auth
-            async with httpx.AsyncClient() as client:
-                audio_response = await client.get(
-                    audio_url,
-                    auth=httpx.BasicAuth(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN),
-                    follow_redirects=True,
-                    timeout=30.0
-                )
-                
-                if audio_response.status_code != 200:
-                    logger.error(f"Download failed: {audio_response.status_code} - {audio_response.text[:200]}")
-                    return ""
-                
-                audio_data = audio_response.content
-                logger.info(f"Downloaded: {len(audio_data)} bytes, content-type: {audio_response.headers.get('content-type')}")
-                
-                # Check if we got XML error instead of audio
-                if b'<?xml' in audio_data[:100] or b'<html' in audio_data[:100]:
-                    logger.error(f"Got HTML/XML instead of audio: {audio_data[:200]}")
-                    return ""
-            
-            # AssemblyAI
-            assembly_key = os.getenv("ASSEMBLYAI_API_KEY")
-            if not assembly_key:
-                logger.error("No AssemblyAI key")
+            logger.info("Starting transcription for %s [%s]", audio_url, source)
+            audio_bytes = await self._download_audio(
+                audio_url=audio_url,
+                source=source,
+                content_type=content_type,
+                message_sid=message_sid,
+                bearer_token=bearer_token,
+            )
+
+            if not audio_bytes:
+                logger.error("Unable to download audio for transcription")
                 return ""
-            
-            logger.info("Uploading to AssemblyAI...")
-            async with httpx.AsyncClient() as client:
-                # Upload
-                upload_response = await client.post(
-                    "https://api.assemblyai.com/v2/upload",
-                    headers={"authorization": assembly_key},
-                    content=audio_data,
-                    timeout=30.0
-                )
-                
-                if upload_response.status_code != 200:
-                    logger.error(f"Upload failed: {upload_response.text}")
-                    return ""
-                
-                upload_url = upload_response.json()["upload_url"]
-                logger.info(f"Uploaded, starting transcription...")
-                
-                # Transcribe
-                transcript_response = await client.post(
-                    "https://api.assemblyai.com/v2/transcript",
-                    headers={"authorization": assembly_key},
-                    json={"audio_url": upload_url},
-                    timeout=30.0
-                )
-                transcript_id = transcript_response.json()["id"]
-                logger.info(f"Transcription started: {transcript_id}")
-                
-                # Poll for result
-                import asyncio
-                for i in range(30):
-                    await asyncio.sleep(1)
-                    result_response = await client.get(
-                        f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
-                        headers={"authorization": assembly_key}
-                    )
-                    result = result_response.json()
-                    status = result["status"]
-                    
-                    if status == "completed":
-                        text = result.get("text", "")
-                        logger.info(f"✅ Transcribed: {text}")
-                        return text
-                    elif status == "error":
-                        logger.error(f"Transcription error: {result.get('error')}")
-                        return ""
-                    
-                    if i % 5 == 0:
-                        logger.info(f"Polling... status={status}")
-                
-                logger.error("Transcription timeout")
-                return ""
-                    
-        except Exception as e:
-            logger.error(f"Transcription error: {e}", exc_info=True)
+
+            return await self._transcribe_with_assembly(audio_bytes)
+        except Exception as exc:
+            logger.error("Transcription error: %s", exc, exc_info=True)
             return ""
     
     async def text_to_speech(self, text: str) -> bytes:
@@ -190,5 +134,158 @@ class VoiceService:
         """Send voice via Meta WhatsApp"""
         # Similar to Twilio but using Meta API
         pass
+
+    async def _download_audio(
+        self,
+        *,
+        audio_url: str,
+        source: str,
+        content_type: str,
+        message_sid: Optional[str],
+        bearer_token: Optional[str],
+    ) -> Optional[bytes]:
+        headers = {}
+        auth = None
+
+        if source == "twilio":
+            if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_AUTH_TOKEN:
+                logger.error("Missing Twilio credentials for audio download")
+                return None
+            auth = httpx.BasicAuth(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        elif source == "meta":
+            token = bearer_token or settings.WHATSAPP_API_TOKEN
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            else:
+                logger.warning("No Meta access token available for voice download")
+
+        response = await self._http_get(audio_url, auth=auth, headers=headers or None)
+        if self._looks_like_audio(response):
+            logger.info("Downloaded %s bytes (%s)", len(response.content), response.headers.get("content-type"))
+            return response.content
+
+        if source == "twilio":
+            fallback_bytes = await self._download_twilio_media_via_api(audio_url, message_sid)
+            if fallback_bytes:
+                return fallback_bytes
+
+        status = response.status_code if response else "unknown"
+        logger.error("Unable to fetch audio from %s (status=%s, type=%s)", audio_url, status, content_type)
+        return None
+
+    async def _http_get(self, url: str, auth=None, headers=None) -> Optional[httpx.Response]:
+        try:
+            async with httpx.AsyncClient() as client:
+                return await client.get(
+                    url,
+                    auth=auth,
+                    headers=headers,
+                    follow_redirects=True,
+                    timeout=30.0,
+                )
+        except Exception as exc:
+            logger.error("HTTP GET failed for %s: %s", url, exc)
+            return None
+
+    def _looks_like_audio(self, response: Optional[httpx.Response]) -> bool:
+        if not response or response.status_code != 200:
+            return False
+        content_type = (response.headers.get("content-type") or "").lower()
+        if "audio" in content_type or "ogg" in content_type:
+            return True
+        snippet = response.content[:64].lstrip()
+        if snippet.startswith(b"<"):
+            logger.error("Voice download returned HTML/XML instead of audio: %s", snippet[:64])
+            return False
+        return bool(response.content)
+
+    def _extract_twilio_media_sid(self, audio_url: str) -> Optional[str]:
+        try:
+            parsed = urlparse(audio_url)
+            segments = [segment for segment in parsed.path.split("/") if segment]
+            if "Media" in segments:
+                media_index = segments.index("Media")
+                if len(segments) > media_index + 1:
+                    return segments[media_index + 1]
+        except Exception as exc:
+            logger.debug("Unable to parse media SID from %s: %s", audio_url, exc)
+        return None
+
+    async def _download_twilio_media_via_api(self, audio_url: str, message_sid: Optional[str]) -> Optional[bytes]:
+        media_sid = self._extract_twilio_media_sid(audio_url)
+        if not media_sid or not message_sid:
+            return None
+        if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_AUTH_TOKEN:
+            return None
+
+        from twilio.rest import Client
+
+        def _fetch() -> Optional[bytes]:
+            client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            response = client.request(
+                "GET",
+                f"/2010-04-01/Accounts/{settings.TWILIO_ACCOUNT_SID}/Messages/{message_sid}/Media/{media_sid}",
+            )
+            if response.status_code == 200:
+                logger.info("Downloaded audio via Twilio media API fallback")
+                return response.content
+            logger.error(
+                "Twilio media API fallback failed (%s): %s",
+                response.status_code,
+                response.text[:120],
+            )
+            return None
+
+        return await asyncio.to_thread(_fetch)
+
+    async def _transcribe_with_assembly(self, audio_data: bytes) -> str:
+        assembly_key = os.getenv("ASSEMBLYAI_API_KEY")
+        if not assembly_key:
+            logger.error("No AssemblyAI key configured")
+            return ""
+
+        logger.info("Uploading audio to AssemblyAI (%s bytes)...", len(audio_data))
+        async with httpx.AsyncClient() as client:
+            upload_response = await client.post(
+                "https://api.assemblyai.com/v2/upload",
+                headers={"authorization": assembly_key},
+                content=audio_data,
+                timeout=30.0,
+            )
+
+            if upload_response.status_code != 200:
+                logger.error("AssemblyAI upload failed: %s", upload_response.text[:200])
+                return ""
+
+            upload_url = upload_response.json().get("upload_url")
+            transcript_response = await client.post(
+                "https://api.assemblyai.com/v2/transcript",
+                headers={"authorization": assembly_key},
+                json={"audio_url": upload_url},
+                timeout=30.0,
+            )
+            transcript_id = transcript_response.json().get("id")
+            logger.info("AssemblyAI transcript job %s created", transcript_id)
+
+            for attempt in range(45):
+                await asyncio.sleep(1)
+                poll = await client.get(
+                    f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
+                    headers={"authorization": assembly_key},
+                )
+                payload = poll.json()
+                status = payload.get("status")
+                if status == "completed":
+                    text = payload.get("text", "")
+                    logger.info("✅ Transcribed text: %s", text)
+                    return text
+                if status == "error":
+                    logger.error("AssemblyAI error: %s", payload.get("error"))
+                    return ""
+                if attempt % 10 == 0:
+                    logger.info("Polling AssemblyAI... status=%s", status)
+
+        logger.error("AssemblyAI transcription timed out")
+        return ""
 
 voice_service = VoiceService()

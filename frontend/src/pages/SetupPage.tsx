@@ -92,6 +92,73 @@ const mergeIntegrations = (current: IntegrationsState, saved?: Partial<Integrati
     };
 };
 
+interface SettlementAccountForm {
+    bank: string;
+    account_name: string;
+    account_number: string;
+    notes: string;
+}
+
+const createBlankSettlementAccount = (): SettlementAccountForm => ({
+    bank: "",
+    account_name: "",
+    account_number: "",
+    notes: "",
+});
+
+const parseSettlementAccount = (raw: unknown): SettlementAccountForm => {
+    const parsed = createBlankSettlementAccount();
+    if (!raw) {
+        return parsed;
+    }
+    let source = raw;
+    if (typeof raw === "string") {
+        try {
+            source = JSON.parse(raw);
+        } catch (err) {
+            console.warn("Unable to parse settlement account JSON", err);
+            source = null;
+        }
+    }
+    if (source && typeof source === "object") {
+        const record = source as Record<string, unknown>;
+        parsed.bank = typeof record.bank === "string" ? record.bank : parsed.bank;
+        parsed.account_name = typeof record.account_name === "string" ? record.account_name : parsed.account_name;
+        parsed.account_number = typeof record.account_number === "string" ? record.account_number : parsed.account_number;
+        parsed.notes = typeof record.notes === "string" ? record.notes : parsed.notes;
+    }
+    return parsed;
+};
+
+const buildSettlementAccountPayload = (
+    form: SettlementAccountForm
+): { payload: SettlementAccountForm | null; error?: string } => {
+    const bank = form.bank.trim();
+    const accountName = form.account_name.trim();
+    const accountNumber = form.account_number.trim();
+    const notes = form.notes.trim();
+
+    if (!bank && !accountName && !accountNumber && !notes) {
+        return { payload: null };
+    }
+
+    if (!bank || !accountName || !accountNumber) {
+        return {
+            payload: null,
+            error: "Please provide bank name, account name, and account number to save payment details.",
+        };
+    }
+
+    return {
+        payload: {
+            bank,
+            account_name: accountName,
+            account_number: accountNumber,
+            notes,
+        },
+    };
+};
+
 interface FormState {
     business_name: string;
     description: string;
@@ -104,6 +171,9 @@ interface FormState {
     sample_messages: string[];
     business_hours: HoursMap;
     integrations: IntegrationsState;
+    pickup_address: string;
+    pickup_instructions: string;
+    settlement_account: SettlementAccountForm;
 }
 
 function SetupPage() {
@@ -121,6 +191,9 @@ function SetupPage() {
         sample_messages: ["Tell me what cakes you have", "Can I get delivery today?"],
         business_hours: cloneDefaultHours(),
         integrations: cloneIntegrations(),
+        pickup_address: "",
+        pickup_instructions: "",
+        settlement_account: createBlankSettlementAccount(),
     });
     const [loadingProfile, setLoadingProfile] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -170,6 +243,11 @@ function SetupPage() {
                         : prev.sample_messages,
                     business_hours: data.business_hours || prev.business_hours,
                     integrations: mergeIntegrations(prev.integrations, data.integration_preferences?.channels || null),
+                    pickup_address: data.pickup_address || prev.pickup_address,
+                    pickup_instructions: data.pickup_instructions || prev.pickup_instructions,
+                    settlement_account: parseSettlementAccount(
+                        data.settlement_account || data.payment_instructions || prev.settlement_account
+                    ),
                 }));
             } catch (err) {
                 console.error(err);
@@ -219,6 +297,16 @@ function SetupPage() {
         setFormState((prev) => ({ ...prev, sample_messages: [...prev.sample_messages, ""] }));
     };
 
+    const handleSettlementChange = (field: keyof SettlementAccountForm, value: string) => {
+        setFormState((prev) => ({
+            ...prev,
+            settlement_account: {
+                ...prev.settlement_account,
+                [field]: value,
+            },
+        }));
+    };
+
     const handleFinishSetup = () => {
         setRedirectAfterSave(true);
         document.getElementById("business-setup-form")?.requestSubmit();
@@ -262,10 +350,24 @@ function SetupPage() {
             return;
         }
         try {
+            const { payload: settlementAccountPayload, error: settlementError } = buildSettlementAccountPayload(formState.settlement_account);
+            if (settlementError) {
+                setError(settlementError);
+                setSaving(false);
+                return;
+            }
+
+            const payload = {
+                ...formState,
+                pickup_address: formState.pickup_address.trim() || null,
+                pickup_instructions: formState.pickup_instructions.trim() || null,
+                settlement_account: settlementAccountPayload,
+            };
+
             const res = await fetch(`${API_URL}/api/businesses`, {
                 method: "POST",
                 headers: { ...headers, "Content-Type": "application/json" },
-                body: JSON.stringify(formState),
+                body: JSON.stringify(payload),
             });
             const data = await res.json();
             if (!res.ok) {
@@ -672,6 +774,75 @@ function SetupPage() {
                                             />
                                         </div>
                                     ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid gap-6 rounded-3xl border border-gray-100 p-6 md:grid-cols-2">
+                            <div>
+                                <p className="text-sm font-semibold uppercase tracking-[0.3em] text-gray-500">Pickup logistics</p>
+                                <h3 className="mt-2 text-lg font-semibold text-black">Share your pickup spot</h3>
+                                <label className="mt-4 block text-sm font-medium text-black">Pickup address</label>
+                                <textarea
+                                    value={formState.pickup_address}
+                                    onChange={(e) => handleInputChange("pickup_address", e.target.value)}
+                                    rows={3}
+                                    className="mt-2 w-full rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-brand"
+                                    placeholder="12 Adebisi Street, Lekki Phase 1, Lagos"
+                                />
+                                <label className="mt-4 block text-sm font-medium text-black">Pickup instructions</label>
+                                <textarea
+                                    value={formState.pickup_instructions}
+                                    onChange={(e) => handleInputChange("pickup_instructions", e.target.value)}
+                                    rows={3}
+                                    className="mt-2 w-full rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-brand"
+                                    placeholder="Open Tue-Sun, 10am-6pm. Call ahead for rush orders."
+                                />
+                            </div>
+                            <div>
+                                <p className="text-sm font-semibold uppercase tracking-[0.3em] text-gray-500">Bank details</p>
+                                <h3 className="mt-2 text-lg font-semibold text-black">Tell HaloAgent where money lands</h3>
+                                <div className="mt-4 space-y-4">
+                                    <div>
+                                        <label className="text-sm font-medium text-black">Bank name</label>
+                                        <input
+                                            type="text"
+                                            value={formState.settlement_account.bank}
+                                            onChange={(e) => handleSettlementChange("bank", e.target.value)}
+                                            className="mt-2 w-full rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-brand"
+                                            placeholder="GTBank"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-sm font-medium text-black">Account name</label>
+                                        <input
+                                            type="text"
+                                            value={formState.settlement_account.account_name}
+                                            onChange={(e) => handleSettlementChange("account_name", e.target.value)}
+                                            className="mt-2 w-full rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-brand"
+                                            placeholder="SweetCrumbs Cakes"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-sm font-medium text-black">Account number</label>
+                                        <input
+                                            type="text"
+                                            value={formState.settlement_account.account_number}
+                                            onChange={(e) => handleSettlementChange("account_number", e.target.value)}
+                                            className="mt-2 w-full rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-brand"
+                                            placeholder="0123456789"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-sm font-medium text-black">Payment notes</label>
+                                        <textarea
+                                            value={formState.settlement_account.notes}
+                                            onChange={(e) => handleSettlementChange("notes", e.target.value)}
+                                            rows={2}
+                                            className="mt-2 w-full rounded-lg border border-gray-200 px-4 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-brand"
+                                            placeholder="Send a WhatsApp message once you transfer so we can confirm."
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>

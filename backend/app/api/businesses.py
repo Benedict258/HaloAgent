@@ -38,6 +38,9 @@ class BusinessProfileInput(BaseModel):
     instagram: Optional[str] = Field(None, max_length=200)
     sample_messages: List[str] = Field(default_factory=list)
     integrations: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    pickup_address: Optional[str] = Field(None, max_length=240)
+    pickup_instructions: Optional[str] = Field(None, max_length=400)
+    settlement_account: Optional[SettlementAccountInput] = None
 
 
 class InventoryItemInput(BaseModel):
@@ -62,6 +65,13 @@ class InventoryItemUpdate(BaseModel):
     image_url: Optional[str] = Field(None, max_length=500)
     available_today: Optional[bool] = None
     available: Optional[bool] = None
+
+
+class SettlementAccountInput(BaseModel):
+    bank: str = Field(..., min_length=2, max_length=80)
+    account_name: str = Field(..., min_length=2, max_length=140)
+    account_number: str = Field(..., min_length=4, max_length=30)
+    notes: Optional[str] = Field(None, max_length=400)
 
 
 def _slugify(value: str) -> str:
@@ -122,6 +132,8 @@ async def save_business_profile(payload: BusinessProfileInput, current_user: dic
         "channels": channels_payload,
     }
 
+    settlement_account_data = payload.settlement_account.dict() if payload.settlement_account else None
+
     business_record = {
         "business_id": business_id,
         "business_name": payload.business_name,
@@ -134,7 +146,13 @@ async def save_business_profile(payload: BusinessProfileInput, current_user: dic
         "settings": profile_settings,
         "integration_preferences": integration_preferences,
         "webhook_url": WEBHOOK_URL,
+        "pickup_address": (payload.pickup_address or None),
+        "pickup_instructions": (payload.pickup_instructions or None),
+        "settlement_account": settlement_account_data,
     }
+
+    if settlement_account_data:
+        business_record["payment_instructions"] = settlement_account_data
 
     # Fetch existing record (if any)
     existing = supabase.table("businesses").select("business_id,sandbox_code").eq("business_id", business_id).execute()

@@ -16,9 +16,12 @@ class Business(Base):
     supported_languages = Column(JSON, default=["en"])  # ["en", "yo", "ha", "ig"]
     inventory = Column(JSON, nullable=True)  # Product catalog
     payment_instructions = Column(JSON, nullable=True)  # Bank or wallet details shared with customers
+    settlement_account = Column(JSON, nullable=True)
     business_hours = Column(JSON, nullable=True)
     settings = Column(JSON, nullable=True)
     integration_preferences = Column(JSON, nullable=True)
+    pickup_address = Column(Text, nullable=True)
+    pickup_instructions = Column(Text, nullable=True)
     webhook_url = Column(String, nullable=True)
     sandbox_code = Column(String, nullable=True)
     active = Column(Boolean, default=True)

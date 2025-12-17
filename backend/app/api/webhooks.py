@@ -116,7 +116,12 @@ async def receive_whatsapp_message(request: Request):
                 logger.info(f"Processing Twilio voice note from {from_number}, type: {media_content_type}")
                 
                 from app.services.voice import voice_service
-                transcribed_text = await voice_service.transcribe_audio(media_url, media_content_type)
+                transcribed_text = await voice_service.transcribe_audio(
+                    media_url,
+                    media_content_type,
+                    source="twilio",
+                    message_sid=message_id,
+                )
                 
                 if transcribed_text:
                     response_text = await orchestrator.process_message(from_number, transcribed_text, message_id, to_number, channel="twilio")
@@ -189,7 +194,11 @@ async def receive_whatsapp_message(request: Request):
                         # Download and transcribe
                         from app.services.voice import voice_service
                         audio_url = f"https://graph.facebook.com/v18.0/{audio_id}"
-                        transcribed_text = await voice_service.transcribe_audio(audio_url)
+                        transcribed_text = await voice_service.transcribe_audio(
+                            audio_url,
+                            source="meta",
+                            bearer_token=settings.WHATSAPP_API_TOKEN,
+                        )
                         
                         if transcribed_text:
                             phone_id = value.get("metadata", {}).get("phone_number_id", settings.WHATSAPP_PHONE_NUMBER_ID)
