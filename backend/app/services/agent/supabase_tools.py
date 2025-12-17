@@ -59,12 +59,22 @@ class SupabaseTools:
         """Create order in Supabase"""
         try:
             # Get contact first
-            contact_result = supabase.table("contacts").select("id").eq("phone_number", phone).eq("business_id", business_id).execute()
+            contact_result = (
+                supabase
+                .table("contacts")
+                .select("id, order_count")
+                .eq("phone_number", phone)
+                .eq("business_id", business_id)
+                .limit(1)
+                .execute()
+            )
             
             if not contact_result.data:
                 return json.dumps({"status": "error", "message": "Contact not found"})
             
-            contact_id = contact_result.data[0]["id"]
+            contact_row = contact_result.data[0]
+            contact_id = contact_row["id"]
+            existing_order_count = contact_row.get("order_count") or 0
             
             # Generate order number and align payment reference with order id
             import random
@@ -85,19 +95,27 @@ class SupabaseTools:
                 "created_at": datetime.utcnow().isoformat()
             }
             
-            result = supabase.table("orders").insert(order_data).execute()
-            
-            # Increment order count
-            supabase.table("contacts").update({
-                "order_count": supabase.rpc("increment", {"x": 1})
-            }).eq("id", contact_id).execute()
+            insert_result = (
+                supabase
+                .table("orders")
+                .insert(order_data)
+                .select("id, order_number, payment_reference")
+                .execute()
+            )
+            inserted_row = insert_result.data[0] if insert_result.data else {}
+            try:
+                supabase.table("contacts").update({
+                    "order_count": existing_order_count + 1
+                }).eq("id", contact_id).execute()
+            except Exception as count_err:
+                logger.warning("Failed to bump order_count for contact %s: %s", contact_id, count_err)
             
             return json.dumps({
                 "status": "success",
                 "message": "Order created",
-                "order_id": result.data[0]["id"] if result.data else None,
-                "order_number": order_number,
-                "payment_reference": payment_reference,
+                "order_id": inserted_row.get("id"),
+                "order_number": inserted_row.get("order_number") or order_number,
+                "payment_reference": inserted_row.get("payment_reference") or payment_reference,
                 "total": total
             })
         except Exception as e:

@@ -29,20 +29,21 @@ class VisionService:
         """Return mock receipt extraction until DINOV3 wiring is ready."""
         hints: List[str] = []
         normalized_reference = self._normalize_reference(expected_reference)
-        detected_reference = normalized_reference or self._extract_reference_from_text(text_hint)
+        detected_reference = self._extract_reference_from_text(text_hint)
         if not detected_reference:
             detected_reference = self._extract_reference_from_text(media_url)
         if detected_reference:
             hints.append(f"Reference candidate: {detected_reference}")
+        elif normalized_reference:
+            hints.append(f"Expected reference {normalized_reference} missing from receipt upload.")
 
-        detected_amount = None
-        if expected_amount is not None:
-            detected_amount = expected_amount
-            hints.append(f"Amount matches expected NGN {expected_amount:,.0f}")
-        else:
-            detected_amount = self._extract_amount_from_text(text_hint)
-            if detected_amount is not None:
-                hints.append(f"Amount candidate: NGN {detected_amount:,.0f}")
+        detected_amount = self._extract_amount_from_text(text_hint)
+        if detected_amount is None:
+            detected_amount = self._extract_amount_from_text(media_url)
+        if detected_amount is not None:
+            hints.append(f"Amount candidate: NGN {detected_amount:,.0f}")
+        elif expected_amount is not None:
+            hints.append(f"Could not read amount from receipt; expected NGN {expected_amount:,.0f}.")
 
         match_status = self._resolve_match_status(normalized_reference, detected_reference, expected_amount, detected_amount)
 

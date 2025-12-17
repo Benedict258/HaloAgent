@@ -448,6 +448,17 @@ class HaloAgent:
                     .execute()
                 )
                 recent_orders = orders_result.data or []
+            elif business_id:
+                ensured_contact = self._ensure_contact_record(
+                    supabase_client=supabase,
+                    phone=phone,
+                    business_id=business_id,
+                )
+                if ensured_contact:
+                    contact_data = ensured_contact
+                    contact_id = ensured_contact.get("id")
+                    state.set_contact(contact_id)
+                    state.update_business(business_id, None)
 
             if business_id:
                 business = (
@@ -762,9 +773,38 @@ class HaloAgent:
                     order_response = json.loads(order_response_raw or "{}")
                 except json.JSONDecodeError:
                     order_response = {}
+
+                if order_response.get("status") != "success":
+                    error_notice = order_response.get("message") or "Unknown error"
+                    logger.error(f"Order creation failed for {phone}/{business_id}: {error_notice}")
+                    return (
+                        "I tried saving that order but the system needs a moment. "
+                        "Give me a second and we can try again."
+                    )
+
                 order_number = order_response.get("order_number")
                 payment_reference = order_response.get("payment_reference")
                 order_id = order_response.get("order_id")
+
+                if not order_id and contact_id:
+                    try:
+                        latest_order = (
+                            supabase
+                            .table("orders")
+                            .select("id, order_number, payment_reference")
+                            .eq("contact_id", contact_id)
+                            .order("created_at", desc=True)
+                            .limit(1)
+                            .execute()
+                        )
+                        if latest_order.data:
+                            resolved = latest_order.data[0]
+                            order_id = resolved.get("id") or order_id
+                            order_number = order_number or resolved.get("order_number")
+                            payment_reference = payment_reference or resolved.get("payment_reference")
+                    except Exception as lookup_err:
+                        logger.warning(f"Could not backfill order metadata for {phone}: {lookup_err}")
+
                 if order_id:
                     try:
                         supabase.table("orders").update({
@@ -780,6 +820,7 @@ class HaloAgent:
                     state.profile["last_delivery_address"] = pending_snapshot["delivery_address"]
                 state.reset_pending_order()
                 total_text = self._format_currency(order_total)
+                order_identifier = order_number or (f"ORD-{order_id}" if order_id else None)
                 payment_block = self._build_payment_instruction_block(
                     order_number=order_number,
                     payment_reference=payment_reference,
@@ -787,7 +828,7 @@ class HaloAgent:
                     pickup_summary=state.get_pickup_summary(),
                     order_internal_id=order_id,
                 )
-                reference_hint = payment_reference or order_number
+                reference_hint = payment_reference or order_identifier
                 reference_line = (
                     f"Please type {reference_hint} in the bank transfer narration/reference so we can match it quickly.\n\n"
                     if reference_hint
@@ -801,10 +842,11 @@ class HaloAgent:
                             f"Delivering to: {delivery_dest}\n"
                             "If you need it sent somewhere else, just let me know before we dispatch.\n\n"
                         )
+                order_heading = f"Order ID: {order_identifier}\n" if order_identifier else ""
                 return (
                     f"Perfect! Order confirmed for {pending_snapshot['product_name']} "
                     f"({pending_snapshot['fulfillment_type']}).\n\n"
-                    f"Order Total: {total_text}\n\n{address_line}{payment_block}\n\n"
+                    f"{order_heading}Order Total: {total_text}\n\n{address_line}{payment_block}\n\n"
                     f"{reference_line}"
                     "Once you've made the transfer, just let me know and we'll get started on your order right away! 🎉"
                 )
@@ -1358,6 +1400,39 @@ class HaloAgent:
                     return message.strip()
             except Exception:
                 return None
+        return None
+
+    def _ensure_contact_record(
+        self,
+        *,
+        supabase_client,
+        phone: Optional[str],
+        business_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        if not phone or not business_id:
+            return None
+        payload = {
+            "phone_number": phone,
+            "business_id": business_id,
+            "opt_in": True,
+            "status": "active",
+            "consent_timestamp": datetime.utcnow().isoformat(),
+        }
+        try:
+            supabase_client.table("contacts").upsert(payload, on_conflict="phone_number,business_id").execute()
+            lookup = (
+                supabase_client
+                .table("contacts")
+                .select("id, business_id, name, loyalty_points, order_count, language")
+                .eq("phone_number", phone)
+                .eq("business_id", business_id)
+                .limit(1)
+                .execute()
+            )
+            if lookup.data:
+                return lookup.data[0]
+        except Exception as exc:
+            logger.error(f"Failed to ensure contact record for {phone}/{business_id}: {exc}")
         return None
 
 agent = HaloAgent()
