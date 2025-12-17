@@ -517,7 +517,7 @@ class HaloAgent:
                     state.pending_order["delivery_address"] = fallback_address
 
         # Check if user is notifying payment
-        if contact_id and any(word in message_lower for word in ["paid", "payment", "transferred", "sent money"]):
+        if contact_id and self._looks_like_payment_confirmation(message_lower):
             try:
                 pending_orders = (
                     supabase
@@ -579,27 +579,33 @@ class HaloAgent:
             try:
                 import re
 
-                match = re.search(r'ORD-\d+', message.upper())
+                match = re.search(r"ORD-\d+", message.upper())
                 if match:
-                    order_number = match.group(0)
-                    order = (
+                    order_number = match.group(0).upper()
+                    order_query = (
                         supabase
                         .table("orders")
                         .select("id, order_number")
                         .eq("contact_id", contact_id)
                         .eq("order_number", order_number)
                         .eq("status", "pending_payment")
-                        .single()
+                        .limit(1)
                         .execute()
                     )
 
-                    if order.data:
+                    order_row = order_query.data[0] if order_query.data else None
+                    if order_row:
                         supabase.table("orders").update({
                             "status": "awaiting_confirmation",
                             "payment_notes": f"Customer shared payment reference via chat on {datetime.utcnow().isoformat()}",
                             "updated_at": datetime.utcnow().isoformat()
-                        }).eq("id", order.data["id"]).execute()
-                        return f"Perfect! I've let the team know about your payment for Order #{order_number}. They'll confirm it shortly! 🙏"
+                        }).eq("id", order_row["id"]).execute()
+                        return (
+                            f"Perfect! I've let the team know about your payment for Order #{order_number}. "
+                            "They'll confirm it shortly! 🙏"
+                        )
+                    else:
+                        return "I couldn't find that order number among pending payments. Mind confirming the digits?"
             except Exception as e:
                 logger.error(f"Order number payment error: {e}")
 
@@ -1174,6 +1180,25 @@ class HaloAgent:
                 f"Great, we'll deliver {base}. Could you share the delivery address plus any nearby landmark so the rider finds you easily?"
             )
         return None
+
+    def _looks_like_payment_confirmation(self, message_lower: Optional[str]) -> bool:
+        if not message_lower:
+            return False
+        confirmation_phrases = [
+            "i paid",
+            "i have paid",
+            "i've paid",
+            "i just paid",
+            "payment done",
+            "payment made",
+            "i made the payment",
+            "i sent the money",
+            "transfer done",
+            "i've transferred",
+            "money sent",
+            "paid already",
+        ]
+        return any(phrase in message_lower for phrase in confirmation_phrases)
 
     def _is_simple_greeting(self, text: str) -> bool:
         if not text:

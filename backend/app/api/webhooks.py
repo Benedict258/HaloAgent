@@ -11,6 +11,7 @@ from app.services.orchestrator import orchestrator
 from app.services.payments import payment_service
 from app.services.vision import vision_service
 from app.services.whatsapp import whatsapp_service
+from app.utils.media_cache import media_cache
 # Note: We need a way to send back to Twilio. The previously implemented `send_twilio_message` is good.
 # I will integrate it here or assume Orchestrator handles it if I reverted?
 # Wait, my previous step made Orchestrator return the text.
@@ -139,7 +140,8 @@ async def receive_whatsapp_message(request: Request):
                     media_url=media_url,
                     message_id=message_id,
                     body=body,
-                    channel="twilio"
+                    channel="twilio",
+                    media_content_type=media_content_type,
                 )
                 if image_result and image_result.get("response_text"):
                     await send_twilio_message(from_number, image_result["response_text"])
@@ -225,7 +227,8 @@ async def receive_whatsapp_message(request: Request):
                                 message_id=message_id,
                                 body=caption,
                                 channel="meta",
-                                phone_id=phone_id
+                                phone_id=phone_id,
+                                media_content_type=message.get("image", {}).get("mime_type"),
                             )
                             if image_result and image_result.get("response_text"):
                                 await send_meta_message(from_number, image_result["response_text"], phone_id)
@@ -245,6 +248,7 @@ async def _handle_image_attachment(
     body: Optional[str],
     channel: str,
     phone_id: Optional[str] = None,
+    media_content_type: Optional[str] = None,
 ) -> Optional[dict]:
     context = await _resolve_business_context(from_number, to_number=to_number, phone_id=phone_id)
     if not context:
@@ -265,6 +269,13 @@ async def _handle_image_attachment(
         resolved_to_number = phone_id if phone_id.startswith("+") else f"+{phone_id}"
 
     agent_message = (body or "").strip()
+    cached_media = await media_cache.cache_remote_media(
+        remote_url=media_url,
+        source="meta" if channel == "meta" else "twilio",
+        content_type=media_content_type,
+        bearer_token=settings.WHATSAPP_API_TOKEN if channel == "meta" else None,
+    )
+    persisted_media_url = cached_media.get("public_url") if cached_media else media_url
     if pending_order:
         expected_amount = pending_order.get("total_amount")
         expected_reference = pending_order.get("order_number") or pending_order.get("payment_reference")
@@ -272,15 +283,16 @@ async def _handle_image_attachment(
             business_id=business_id,
             contact_id=contact_id,
             order_id=pending_order["id"],
-            media_url=media_url,
+            media_url=persisted_media_url,
             expected_amount=expected_amount,
             expected_reference=expected_reference,
+            text_hint=agent_message or body,
         )
         update = await payment_service.mark_payment_pending_review(
             business_id=business_id,
             contact_phone=from_number,
             order_id=pending_order["id"],
-            receipt_url=media_url,
+            receipt_url=persisted_media_url,
             note=f"Receipt uploaded via {channel}",
             receipt_analysis=receipt_analysis,
         )
@@ -301,7 +313,7 @@ async def _handle_image_attachment(
         product_analysis = await vision_service.analyze_product_photo(
             business_id=business_id,
             contact_id=contact_id,
-            media_url=media_url,
+            media_url=persisted_media_url,
             inventory=inventory,
         )
         if not agent_message:

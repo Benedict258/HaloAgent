@@ -230,6 +230,7 @@ async def upload_receipt_via_chat(
             media_url=public_url,
             expected_amount=expected_amount,
             expected_reference=expected_reference,
+            text_hint="Receipt uploaded via dashboard",
         )
         supabase.table("orders").update({
             "payment_receipt_analysis": receipt_analysis,

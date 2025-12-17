@@ -310,17 +310,28 @@ export default function OrdersPage() {
     if (!analysis) return []
     if (typeof analysis === 'string') return [analysis]
     const hints: string[] = []
+    if (Array.isArray(analysis.hints)) {
+      analysis.hints.forEach((hint: unknown) => {
+        if (typeof hint === 'string' && hint.trim()) {
+          hints.push(hint.trim())
+        }
+      })
+    }
     const summary = analysis.summary || analysis.description || analysis.note
     if (typeof summary === 'string') hints.push(summary)
 
     const amount = analysis.amount_detected || analysis.detected_amount || analysis.total || analysis.total_amount
     if (amount) hints.push(`Detected amount: ${formatCurrency(amount)}`)
 
-    const reference = analysis.payment_reference || analysis.reference || analysis.ref
+    const reference = analysis.detected_reference || analysis.payment_reference || analysis.reference || analysis.ref
     if (reference) hints.push(`Reference: ${reference}`)
 
     const merchant = analysis.merchant || analysis.business_name
     if (merchant) hints.push(`Merchant: ${merchant}`)
+
+    if (analysis.match_status && analysis.match_status !== 'needs_review') {
+      hints.push(`Match status: ${analysis.match_status.replace(/_/g, ' ')}`)
+    }
 
     if (!hints.length) {
       Object.entries(analysis).slice(0, 3).forEach(([key, value]) => {

@@ -135,6 +135,23 @@ async def approve_payment(order_id: str, approval: PaymentApproval, current_user
         )
         if not order.data:
             raise HTTPException(status_code=404, detail="Order not found")
+
+        business_profile = (
+            supabase
+            .table("businesses")
+            .select("pickup_address, pickup_instructions")
+            .eq("business_id", business_id)
+            .single()
+            .execute()
+        )
+        pickup_address = business_profile.data.get("pickup_address") if business_profile.data else None
+        pickup_instructions = business_profile.data.get("pickup_instructions") if business_profile.data else None
+        pickup_details = []
+        if pickup_address:
+            pickup_details.append(f"📍 Pickup Location: {pickup_address}")
+        if pickup_instructions:
+            pickup_details.append(f"📝 Note: {pickup_instructions}")
+        pickup_details_text = "\n".join(pickup_details) if pickup_details else "📍 We'll share pickup directions when you arrive."
         
         # Update order status
         new_status = "paid" if approval.approved else "payment_rejected"
@@ -272,10 +289,22 @@ async def update_order_status(order_id: str, update: OrderStatusUpdate, current_
         address_line = f"\n📍 Delivery Address: {delivery_address}" if delivery_address else ""
 
         pickup_messages = {
-            "preparing": f"👨‍🍳 Good news! We've started preparing your order.\n\nOrder #{order_id}\nItems: {items_text}\n\nWe'll notify you as soon as it's ready!",
-            "ready_for_pickup": f"🎉 Your order is ready for pickup!\n\nOrder #{order_id}\nItems: {items_text}\n\n📍 Pickup Location: [Your Business Address]\n⏰ Hours: 9am - 6pm\n\nSee you soon!",
+            "preparing": (
+                "👨‍🍳 Good news! We've started preparing your order.\n\n"
+                f"Order #{order_id}\nItems: {items_text}\n\n"
+                "We'll notify you as soon as it's ready!"
+            ),
+            "ready_for_pickup": (
+                "🎉 Your order is ready for pickup!\n\n"
+                f"Order #{order_id}\nItems: {items_text}\n\n"
+                f"{pickup_details_text}\n\nSee you soon!"
+            ),
             "out_for_delivery": f"🚚 Your order #{order_id} is ready for pickup!",  # fallback if status triggered accidentally
-            "completed": f"✅ Thank you for your order!\n\nOrder #{order_id} is now complete. We hope you enjoyed {items_text}!\n\nHow was your experience? Reply with a rating (1-5 stars) ⭐"
+            "completed": (
+                "✅ Thank you for your order!\n\n"
+                f"Order #{order_id} is now complete. We hope you enjoyed {items_text}!\n\n"
+                "How was your experience? Reply with a rating (1-5 stars) ⭐"
+            ),
         }
 
         delivery_messages = {
