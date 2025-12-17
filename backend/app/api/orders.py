@@ -265,6 +265,27 @@ async def update_order_status(order_id: str, update: OrderStatusUpdate, current_
         )
         if not order.data:
             raise HTTPException(status_code=404, detail="Order not found")
+        pickup_details_text = "📍 We'll share pickup directions when you arrive."
+        try:
+            business_profile = (
+                supabase
+                .table("businesses")
+                .select("pickup_address, pickup_instructions")
+                .eq("business_id", business_id)
+                .single()
+                .execute()
+            )
+            pickup_address = business_profile.data.get("pickup_address") if business_profile.data else None
+            pickup_instructions = business_profile.data.get("pickup_instructions") if business_profile.data else None
+            pickup_parts = []
+            if pickup_address:
+                pickup_parts.append(f"📍 Pickup Location: {pickup_address}")
+            if pickup_instructions:
+                pickup_parts.append(f"📝 Note: {pickup_instructions}")
+            if pickup_parts:
+                pickup_details_text = "\n".join(pickup_parts)
+        except Exception as pickup_err:
+            logger.warning(f"Unable to load pickup details for {business_id}: {pickup_err}")
         
         # Update status
         updates = {"status": update.status}
