@@ -3,7 +3,7 @@ from typing import Optional
 import logging
 
 from app.api.auth import require_business_user
-from app.db.supabase_client import supabase
+from app.db.supabase_client import supabase, supabase_admin
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -18,8 +18,9 @@ async def list_vision_analyses(
     """Return recent vision analysis entries (receipt + product photos)."""
     try:
         business_id = current_user["business_id"]
+        client = supabase_admin or supabase
         query = (
-            supabase
+            client
             .table("vision_analysis_results")
             .select(
                 "id, analysis_type, media_url, analysis, created_at, order_id, contact_id, "

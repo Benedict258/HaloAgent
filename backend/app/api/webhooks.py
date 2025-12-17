@@ -257,11 +257,15 @@ async def _handle_image_attachment(
 
     agent_message = (body or "").strip()
     if pending_order:
+        expected_amount = pending_order.get("total_amount")
+        expected_reference = pending_order.get("order_number") or pending_order.get("payment_reference")
         receipt_analysis = await vision_service.analyze_receipt(
             business_id=business_id,
             contact_id=contact_id,
             order_id=pending_order["id"],
             media_url=media_url,
+            expected_amount=expected_amount,
+            expected_reference=expected_reference,
         )
         update = await payment_service.mark_payment_pending_review(
             business_id=business_id,
@@ -373,7 +377,7 @@ def _fetch_latest_pending_order(contact_id: int) -> Optional[dict]:
         result = (
             supabase
             .table("orders")
-            .select("id, order_number, status, payment_reference")
+            .select("id, order_number, status, payment_reference, total_amount")
             .eq("contact_id", contact_id)
             .order("created_at", desc=True)
             .limit(5)

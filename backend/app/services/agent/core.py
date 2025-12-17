@@ -527,18 +527,18 @@ class HaloAgent:
                 items_text = ", ".join([item['name'] for item in items]) if items else "your order"
 
                 supabase.table("orders").update({
-                    "status": "payment_pending_review",
+                    "status": "awaiting_confirmation",
                     "payment_notes": f"Customer said they paid via chat on {datetime.utcnow().isoformat()}",
                     "updated_at": datetime.utcnow().isoformat()
                 }).eq("id", order["id"]).execute()
                 reference = order.get("payment_reference")
                 reference_line = (
-                    f"Please mention the reference {reference} or upload the receipt so the team can confirm faster. "
+                    f"Please make sure the transfer narration includes {reference} so the team can match it instantly. "
                     if reference else ""
                 )
                 return (
-                    f"Thanks for the heads up! I've flagged your payment for Order #{order['order_number']} "
-                    f"({items_text} - ₦{order['total_amount']:,}). {reference_line}"
+                    f"Thanks for the heads up! I've moved Order #{order['order_number']} "
+                    f"({items_text} - ₦{order['total_amount']:,}) to awaiting confirmation. {reference_line}"
                     "We'll verify it shortly and kick off prep right after. 🙏"
                 )
             except Exception as e:
@@ -564,7 +564,7 @@ class HaloAgent:
 
                     if order.data:
                         supabase.table("orders").update({
-                            "status": "payment_pending_review",
+                            "status": "awaiting_confirmation",
                             "payment_notes": f"Customer shared payment reference via chat on {datetime.utcnow().isoformat()}",
                             "updated_at": datetime.utcnow().isoformat()
                         }).eq("id", order.data["id"]).execute()
@@ -619,6 +619,7 @@ class HaloAgent:
                 )
                 order_label = order.get("order_number") or str(order.get("id"))
                 total_text = self._format_currency(order.get("total_amount"))
+                reference_hint = order.get("payment_reference") or order_label
                 try:
                     supabase.table("orders").update({
                         "payment_instructions_sent": True,
@@ -628,9 +629,15 @@ class HaloAgent:
                     logger.warning(
                         f"Failed to update payment instruction flag for order {order.get('id')}: {marker_err}"
                     )
+                reference_line = (
+                    f"Type {reference_hint} in the bank reference/description so we can match it instantly.\n\n"
+                    if reference_hint
+                    else ""
+                )
                 return (
                     f"No problem! Here's how to pay for Order #{order_label} ({total_text}).\n\n"
                     f"{instructions_body}\n\n"
+                    f"{reference_line}"
                     "After you transfer, reply \"I paid\" with the reference or receipt so I can flag it for review."
                 )
             except Exception as e:
@@ -734,6 +741,12 @@ class HaloAgent:
                     payment_reference=payment_reference,
                     payment_details_text=payment_details_text,
                 )
+                reference_hint = payment_reference or order_number
+                reference_line = (
+                    f"Please type {reference_hint} in the bank transfer narration/reference so we can match it quickly.\n\n"
+                    if reference_hint
+                    else ""
+                )
                 address_line = ""
                 if pending_snapshot.get("fulfillment_type") == "delivery":
                     delivery_dest = pending_snapshot.get("delivery_address") or state.profile.get("last_delivery_address")
@@ -746,6 +759,7 @@ class HaloAgent:
                     f"Perfect! Order confirmed for {pending_snapshot['product_name']} "
                     f"({pending_snapshot['fulfillment_type']}).\n\n"
                     f"Order Total: {total_text}\n\n{address_line}{payment_block}\n\n"
+                    f"{reference_line}"
                     "Once you've made the transfer, just let me know and we'll get started on your order right away! 🎉"
                 )
             except Exception as e:
@@ -1037,13 +1051,19 @@ class HaloAgent:
         payment_details_text: Optional[str],
     ) -> str:
         parts: List[str] = []
+        reference_hint = payment_reference or order_number
         if order_number:
             parts.append(f"Order ID: {order_number}")
-        if payment_reference:
-            parts.append(f"Payment Reference: {payment_reference}")
-            parts.append(
-                f"Please include \"{payment_reference}\" in your bank transfer narration or on the receipt so we can match it quickly."
-            )
+        if reference_hint:
+            if reference_hint == order_number:
+                parts.append(
+                    f"Use {reference_hint} as your bank transfer narration/reference so we can match the receipt instantly."
+                )
+            else:
+                parts.append(f"Payment Reference: {reference_hint}")
+                parts.append(
+                    f"Please include \"{reference_hint}\" in your bank transfer narration or on the receipt so we can match it quickly."
+                )
         instructions = payment_details_text or self._default_payment_instructions()
         parts.append(instructions.strip())
         return "\n".join(parts)

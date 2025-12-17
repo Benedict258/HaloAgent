@@ -82,10 +82,25 @@ class MessageOrchestrator:
         return response_text
     
     def _sanitize_response(self, text: str) -> str:
-        """Remove any technical language that leaked into user response"""
-        # Remove common technical phrases
+        """Return clean conversational text (strip JSON/tool noise)."""
+        if not text:
+            return "Got it! Let me help you with that."
+
+        cleaned = text.strip()
+
+        if cleaned.startswith("```") and cleaned.endswith("```"):
+            cleaned = cleaned.strip("`").strip()
+
+        if cleaned.startswith("{") or cleaned.startswith("["):
+            try:
+                from app.services.agent.core import agent as _agent_singleton
+                extracted = _agent_singleton._extract_final_message(cleaned)
+                if extracted:
+                    cleaned = extracted
+            except Exception:
+                pass
+
         bad_phrases = [
-            "I will classify",
             "intent_classifier",
             "tool_call",
             "parameters",
@@ -94,13 +109,13 @@ class MessageOrchestrator:
             "Let me process",
             "Processing your request"
         ]
-        
+
+        lowered = cleaned.lower()
         for phrase in bad_phrases:
-            if phrase.lower() in text.lower():
-                # If technical language detected, return friendly fallback
+            if phrase in lowered:
                 return "Got it! Let me help you with that."
-        
-        return text
+
+        return cleaned
 
     async def _log_message(self, phone: str, content: str, message_id: str, contact_id: int = None, direction: str = "IN", is_bot: bool = False, channel: str = "meta"):
         """Log message to database"""

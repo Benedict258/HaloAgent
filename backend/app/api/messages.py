@@ -211,11 +211,25 @@ async def upload_receipt_via_chat(
             raise HTTPException(status_code=404, detail="No pending order to attach receipt")
 
         order_id = payment_update["order_id"]
+        order_snapshot = (
+            supabase
+            .table("orders")
+            .select("order_number, total_amount")
+            .eq("id", order_id)
+            .single()
+            .execute()
+        )
+        order_data = order_snapshot.data or {}
+        expected_amount = order_data.get("total_amount")
+        expected_reference = order_data.get("order_number")
+
         receipt_analysis = await vision_service.analyze_receipt(
             business_id=business_id,
             contact_id=contact_id,
             order_id=order_id,
             media_url=public_url,
+            expected_amount=expected_amount,
+            expected_reference=expected_reference,
         )
         supabase.table("orders").update({
             "payment_receipt_analysis": receipt_analysis,

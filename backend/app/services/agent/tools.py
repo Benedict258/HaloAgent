@@ -173,9 +173,11 @@ class AgentTools:
             }
             
             media_status = "skipped"
-            if channel.lower() in {"whatsapp", "sms"}:
+            normalized_channel = (channel or "whatsapp").lower()
+            if normalized_channel in {"whatsapp", "sms", "twilio", "meta"}:
                 try:
-                    await media_service.send_product_image(phone, product)
+                    transport = "meta" if normalized_channel == "meta" else "twilio"
+                    await media_service.send_product_image(phone, product, channel=transport)
                     media_status = "sent"
                 except Exception:
                     media_status = "not_sent"
@@ -224,9 +226,11 @@ class AgentTools:
             ]
             
             sent_count = 0
-            if channel.lower() in {"whatsapp", "sms"}:
+            normalized_channel = (channel or "whatsapp").lower()
+            if normalized_channel in {"whatsapp", "sms", "twilio", "meta"}:
                 try:
-                    sent_count = await media_service.send_multiple_products(phone, products, channel="twilio")
+                    transport = "meta" if normalized_channel == "meta" else "twilio"
+                    sent_count = await media_service.send_multiple_products(phone, products, channel=transport)
                 except Exception:
                     sent_count = 0
             

@@ -18,6 +18,8 @@ class VisionService:
         contact_id: Optional[int],
         order_id: Optional[int],
         media_url: str,
+        expected_amount: Optional[float] = None,
+        expected_reference: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Return mock receipt extraction until DINOV3 wiring is ready."""
         analysis = {
@@ -29,6 +31,12 @@ class VisionService:
             "detected_reference": None,
             "detected_items": [],
         }
+        if expected_amount is not None:
+            analysis["expected_amount"] = expected_amount
+            analysis["detected_amount"] = expected_amount
+        if expected_reference:
+            analysis["expected_reference"] = expected_reference
+            analysis["detected_reference"] = expected_reference
         await self._record_analysis(
             business_id=business_id,
             contact_id=contact_id,
