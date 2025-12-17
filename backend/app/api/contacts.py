@@ -53,12 +53,28 @@ async def get_contact_orders(phone: str = Query(...), business_id: str = Query("
     """Get all orders for a contact by phone number"""
     try:
         # Find contact
-        contact = supabase.table("contacts").select("id").eq("phone_number", phone).eq("business_id", business_id).single().execute()
+        contact = (
+            supabase
+            .table("contacts")
+            .select("id")
+            .eq("phone_number", phone)
+            .eq("business_id", business_id)
+            .limit(1)
+            .execute()
+        )
         if not contact.data:
             return []
         
         # Get orders
-        result = supabase.table("orders").select("*").eq("contact_id", contact.data["id"]).order("created_at", desc=True).execute()
+        contact_id = contact.data[0]["id"]
+        result = (
+            supabase
+            .table("orders")
+            .select("*")
+            .eq("contact_id", contact_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
         orders = result.data or []
         
         # Parse items

@@ -533,7 +533,21 @@ class HaloAgent:
                     state.pending_order["delivery_address"] = fallback_address
 
         # Check if user is notifying payment
-        if contact_id and self._looks_like_payment_confirmation(message_lower):
+        payment_confirmation_requested = self._looks_like_payment_confirmation(message_lower)
+        if payment_confirmation_requested:
+            resolved_contact_id = self._resolve_contact_id(
+                state=state,
+                current_contact_id=contact_id,
+                supabase_client=supabase,
+                phone=phone,
+                business_id=state.business_id,
+            )
+            if not resolved_contact_id:
+                return (
+                    "I want to log that payment but I can't find an order tied to this number yet. "
+                    "Mind telling me what you ordered so I can match it?"
+                )
+            contact_id = resolved_contact_id
             try:
                 pending_orders = (
                     supabase
@@ -591,7 +605,17 @@ class HaloAgent:
             except Exception as e:
                 logger.error(f"Payment notification error: {e}")
 
-        if contact_id and "ord-" in message_lower:
+        reference_contact_id = None
+        if "ord-" in message_lower:
+            reference_contact_id = self._resolve_contact_id(
+                state=state,
+                current_contact_id=contact_id,
+                supabase_client=supabase,
+                phone=phone,
+                business_id=state.business_id,
+            )
+        if reference_contact_id:
+            contact_id = reference_contact_id
             try:
                 import re
 
@@ -615,7 +639,7 @@ class HaloAgent:
                             "status": "awaiting_confirmation",
                             "payment_notes": f"Customer shared payment reference via chat on {datetime.utcnow().isoformat()}",
                             "updated_at": datetime.utcnow().isoformat()
-                        }).eq("id", order_row["id"]).execute()
+                        ).eq("id", order_row["id"]).execute()
                         return (
                             f"Perfect! I've let the team know about your payment for Order #{order_number}. "
                             "They'll confirm it shortly! 🙏"
@@ -624,6 +648,11 @@ class HaloAgent:
                         return "I couldn't find that order number among pending payments. Mind confirming the digits?"
             except Exception as e:
                 logger.error(f"Order number payment error: {e}")
+        elif "ord-" in message_lower:
+            return (
+                "I spotted that order number but couldn't match it to your profile yet. "
+                "Mind confirming the phone number used for the order or telling me what you bought?"
+            )
 
         payment_instruction_keywords = [
             "payment details",
@@ -645,7 +674,21 @@ class HaloAgent:
             "paying now",
             "need payment",
         ]
-        if contact_id and any(phrase in message_lower for phrase in payment_instruction_keywords):
+        wants_payment_instructions = any(phrase in message_lower for phrase in payment_instruction_keywords)
+        if wants_payment_instructions:
+            resolved_contact_id = self._resolve_contact_id(
+                state=state,
+                current_contact_id=contact_id,
+                supabase_client=supabase,
+                phone=phone,
+                business_id=state.business_id,
+            )
+            if not resolved_contact_id:
+                return (
+                    "I'd love to share the payment details, but I don't see an order on file yet. "
+                    "Tell me what you'd like to get and I'll pull it up for you."
+                )
+            contact_id = resolved_contact_id
             try:
                 pending_instruction_order = (
                     supabase
@@ -1402,6 +1445,26 @@ class HaloAgent:
                 return None
         return None
 
+    def _resolve_contact_id(
+        self,
+        *,
+        state: ConversationState,
+        current_contact_id: Optional[int],
+        supabase_client,
+        phone: Optional[str],
+        business_id: Optional[str],
+    ) -> Optional[int]:
+        if current_contact_id:
+            return current_contact_id
+        lookup_id = self._lookup_contact_id(
+            supabase_client=supabase_client,
+            phone=phone,
+            business_id=business_id,
+        )
+        if lookup_id:
+            state.set_contact(lookup_id)
+        return lookup_id
+
     def _ensure_contact_record(
         self,
         *,
@@ -1433,6 +1496,31 @@ class HaloAgent:
                 return lookup.data[0]
         except Exception as exc:
             logger.error(f"Failed to ensure contact record for {phone}/{business_id}: {exc}")
+        return None
+
+    def _lookup_contact_id(
+        self,
+        *,
+        supabase_client,
+        phone: Optional[str],
+        business_id: Optional[str],
+    ) -> Optional[int]:
+        if not phone or not business_id:
+            return None
+        try:
+            lookup = (
+                supabase_client
+                .table("contacts")
+                .select("id")
+                .eq("phone_number", phone)
+                .eq("business_id", business_id)
+                .limit(1)
+                .execute()
+            )
+            if lookup.data:
+                return lookup.data[0].get("id")
+        except Exception as exc:
+            logger.error(f"Failed to look up contact for {phone}/{business_id}: {exc}")
         return None
 
 agent = HaloAgent()
