@@ -50,7 +50,10 @@ def create_tables():
         supported_languages JSONB DEFAULT '["en"]'::jsonb,
         inventory JSONB DEFAULT '[]'::jsonb,
         payment_instructions JSONB DEFAULT '{}'::jsonb,
+        settlement_account JSONB DEFAULT '{}'::jsonb,
         business_hours JSONB,
+        pickup_address TEXT,
+        pickup_instructions TEXT,
         active BOOLEAN DEFAULT true,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

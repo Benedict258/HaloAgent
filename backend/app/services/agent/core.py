@@ -49,6 +49,9 @@ class ConversationState:
         self.integration_channels: Dict[str, Any] = {}
         self.last_normalized_message: Optional[str] = None
         self.last_escalation_signature: Optional[str] = None
+        self.pickup_address: Optional[str] = None
+        self.pickup_instructions: Optional[str] = None
+        self.settlement_account: Dict[str, Any] = {}
 
     def reset_pending_order(self):
         self.pending_order = {
@@ -84,6 +87,17 @@ class ConversationState:
         integration_prefs = business_data.get("integration_preferences") or {}
         channels = integration_prefs.get("channels") if isinstance(integration_prefs, dict) else {}
         self.integration_channels = channels or self.integration_channels
+        self.pickup_address = business_data.get("pickup_address") or self.pickup_address
+        self.pickup_instructions = business_data.get("pickup_instructions") or self.pickup_instructions
+
+        settlement_data = business_data.get("settlement_account") or business_data.get("payment_instructions")
+        if isinstance(settlement_data, str):
+            try:
+                settlement_data = json.loads(settlement_data)
+            except Exception:
+                settlement_data = None
+        if isinstance(settlement_data, dict):
+            self.settlement_account = settlement_data
 
     def set_contact(self, contact_id: Optional[int]):
         if contact_id:
@@ -304,7 +318,24 @@ class ConversationState:
                 channel_summaries.append(f"{key}: {status}")
             if channel_summaries:
                 details.append("Integration status: " + ", ".join(channel_summaries))
+        pickup = self.get_pickup_summary()
+        if pickup:
+            details.append(f"Pickup: {pickup}")
+        bank = self.settlement_account.get("bank") if isinstance(self.settlement_account, dict) else None
+        account_number = self.settlement_account.get("account_number") if isinstance(self.settlement_account, dict) else None
+        if bank and account_number:
+            details.append(f"Settlement account: {bank} • {account_number}")
         return "\n".join(details)
+
+    def get_pickup_summary(self) -> Optional[str]:
+        parts: List[str] = []
+        if self.pickup_address:
+            parts.append(self.pickup_address)
+        if self.pickup_instructions:
+            parts.append(self.pickup_instructions)
+        if not parts:
+            return None
+        return " • ".join(parts)
 
     def record_tool_call(self, tool_name: Optional[str]):
         if not tool_name:
@@ -616,6 +647,7 @@ class HaloAgent:
                     order_number=order.get("order_number"),
                     payment_reference=order.get("payment_reference"),
                     payment_details_text=payment_details_text,
+                    pickup_summary=state.get_pickup_summary(),
                 )
                 order_label = order.get("order_number") or str(order.get("id"))
                 total_text = self._format_currency(order.get("total_amount"))
@@ -740,6 +772,7 @@ class HaloAgent:
                     order_number=order_number,
                     payment_reference=payment_reference,
                     payment_details_text=payment_details_text,
+                    pickup_summary=state.get_pickup_summary(),
                 )
                 reference_hint = payment_reference or order_number
                 reference_line = (
@@ -1024,7 +1057,13 @@ class HaloAgent:
         return "\n".join(lines)
 
     def _format_payment_instructions(self, business_data: Dict[str, Any]) -> str:
-        payment_meta = business_data.get("payment_instructions")
+        payment_meta = business_data.get("settlement_account") or business_data.get("payment_instructions")
+        if isinstance(payment_meta, str):
+            try:
+                payment_meta = json.loads(payment_meta)
+            except Exception:
+                payment_meta = payment_meta.strip()
+
         if isinstance(payment_meta, dict):
             bank = payment_meta.get("bank") or "GTBank"
             account_name = payment_meta.get("account_name") or business_data.get("business_name") or "SweetCrumbs Cakes"
@@ -1049,6 +1088,7 @@ class HaloAgent:
         order_number: Optional[str],
         payment_reference: Optional[str],
         payment_details_text: Optional[str],
+        pickup_summary: Optional[str] = None,
     ) -> str:
         parts: List[str] = []
         reference_hint = payment_reference or order_number
@@ -1066,6 +1106,8 @@ class HaloAgent:
                 )
         instructions = payment_details_text or self._default_payment_instructions()
         parts.append(instructions.strip())
+        if pickup_summary:
+            parts.append(f"Pickup: {pickup_summary}")
         return "\n".join(parts)
 
     def _format_currency(self, amount: Optional[float]) -> str:

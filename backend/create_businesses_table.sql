@@ -9,7 +9,10 @@ CREATE TABLE IF NOT EXISTS public.businesses (
     supported_languages JSONB DEFAULT '["en"]'::jsonb,
     inventory JSONB DEFAULT '[]'::jsonb,
     payment_instructions JSONB DEFAULT '{}'::jsonb,
+    settlement_account JSONB DEFAULT '{}'::jsonb,
     business_hours JSONB,
+    pickup_address TEXT,
+    pickup_instructions TEXT,
     active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -17,7 +20,10 @@ CREATE TABLE IF NOT EXISTS public.businesses (
 
 -- Ensure legacy tables gain payment instructions column
 ALTER TABLE public.businesses
-ADD COLUMN IF NOT EXISTS payment_instructions JSONB DEFAULT '{}'::jsonb;
+ADD COLUMN IF NOT EXISTS payment_instructions JSONB DEFAULT '{}'::jsonb,
+ADD COLUMN IF NOT EXISTS settlement_account JSONB DEFAULT '{}'::jsonb,
+ADD COLUMN IF NOT EXISTS pickup_address TEXT,
+ADD COLUMN IF NOT EXISTS pickup_instructions TEXT;
 
 -- Create index on whatsapp_number for fast lookups
 CREATE INDEX IF NOT EXISTS idx_businesses_whatsapp ON public.businesses(whatsapp_number);
@@ -51,6 +57,9 @@ INSERT INTO public.businesses (
     supported_languages,
     inventory,
     payment_instructions,
+    settlement_account,
+    pickup_address,
+    pickup_instructions,
     active
 ) VALUES (
     'sweetcrumbs_001',
@@ -58,6 +67,7 @@ INSERT INTO public.businesses (
     '+14155238886',
     'en',
     '["en", "yo"]'::jsonb,
+    '[
     '[
         {"name": "Chocolate Cake", "price": 5000, "available": true, "description": "Rich chocolate cake"},
         {"name": "Vanilla Cake", "price": 4500, "available": true, "description": "Classic vanilla"},
@@ -69,7 +79,14 @@ INSERT INTO public.businesses (
         "account_number": "0123456789",
         "notes": "Send a quick WhatsApp message once you transfer so we can confirm."
     }'::jsonb,
-    true
+    '{
+        "bank": "GTBank",
+        "account_name": "SweetCrumbs Cakes",
+        "account_number": "0123456789",
+        "notes": "Send a quick WhatsApp message once you transfer so we can confirm."
+    }'::jsonb,
+    '12 Adebisi Street, Lekki Phase 1, Lagos',
+    'Pickup window 10am-6pm Tue-Sun. Call ahead for rush orders.',
 ) ON CONFLICT (business_id) DO NOTHING;
 
 -- Grant permissions
