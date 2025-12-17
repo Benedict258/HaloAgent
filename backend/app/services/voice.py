@@ -146,6 +146,10 @@ class VoiceService:
     ) -> Optional[bytes]:
         headers = {}
         auth = None
+        normalized_url = self._normalize_media_url(audio_url, source)
+        if not normalized_url:
+            logger.error("No audio URL provided for download")
+            return None
 
         if source == "twilio":
             if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_AUTH_TOKEN:
@@ -159,18 +163,18 @@ class VoiceService:
             else:
                 logger.warning("No Meta access token available for voice download")
 
-        response = await self._http_get(audio_url, auth=auth, headers=headers or None)
+        response = await self._http_get(normalized_url, auth=auth, headers=headers or None)
         if self._looks_like_audio(response):
             logger.info("Downloaded %s bytes (%s)", len(response.content), response.headers.get("content-type"))
             return response.content
 
         if source == "twilio":
-            fallback_bytes = await self._download_twilio_media_via_api(audio_url, message_sid)
+            fallback_bytes = await self._download_twilio_media_via_api(normalized_url, message_sid)
             if fallback_bytes:
                 return fallback_bytes
 
         status = response.status_code if response else "unknown"
-        logger.error("Unable to fetch audio from %s (status=%s, type=%s)", audio_url, status, content_type)
+        logger.error("Unable to fetch audio from %s (status=%s, type=%s)", normalized_url, status, content_type)
         return None
 
     async def _http_get(self, url: str, auth=None, headers=None) -> Optional[httpx.Response]:
@@ -237,6 +241,21 @@ class VoiceService:
             return None
 
         return await asyncio.to_thread(_fetch)
+
+    def _normalize_media_url(self, audio_url: Optional[str], source: str) -> Optional[str]:
+        if not audio_url:
+            return None
+        parsed = urlparse(audio_url)
+        if parsed.scheme:
+            return audio_url
+        if audio_url.startswith("//"):
+            return f"https:{audio_url}"
+        if source == "twilio":
+            base = "https://api.twilio.com"
+            if audio_url.startswith("/"):
+                return f"{base}{audio_url}"
+            return f"{base}/{audio_url}"
+        return audio_url
 
     async def _transcribe_with_assembly(self, audio_data: bytes) -> str:
         assembly_key = os.getenv("ASSEMBLYAI_API_KEY")
