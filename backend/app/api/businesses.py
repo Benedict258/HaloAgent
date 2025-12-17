@@ -26,6 +26,13 @@ class BusinessHours(BaseModel):
     sun: Optional[Dict[str, str]] = None
 
 
+class SettlementAccountInput(BaseModel):
+    bank: str = Field(..., min_length=2, max_length=80)
+    account_name: str = Field(..., min_length=2, max_length=140)
+    account_number: str = Field(..., min_length=4, max_length=30)
+    notes: Optional[str] = Field(None, max_length=400)
+
+
 class BusinessProfileInput(BaseModel):
     business_name: str = Field(..., min_length=2, max_length=120)
     description: Optional[str] = Field(None, max_length=600)
@@ -65,15 +72,6 @@ class InventoryItemUpdate(BaseModel):
     image_url: Optional[str] = Field(None, max_length=500)
     available_today: Optional[bool] = None
     available: Optional[bool] = None
-
-
-class SettlementAccountInput(BaseModel):
-    bank: str = Field(..., min_length=2, max_length=80)
-    account_name: str = Field(..., min_length=2, max_length=140)
-    account_number: str = Field(..., min_length=4, max_length=30)
-    notes: Optional[str] = Field(None, max_length=400)
-
-
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or f"biz-{secrets.token_hex(2)}"
