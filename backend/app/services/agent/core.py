@@ -110,7 +110,12 @@ class ConversationState:
     def extract_from_history(self, history: str, latest_message: Optional[str], inventory: List[Dict[str, Any]]):
         """Extract order cues from conversation history and latest message."""
 
-        def _update_from_text(text: Optional[str], original_text: Optional[str], allow_override: bool):
+        def _update_from_text(
+            text: Optional[str],
+            original_text: Optional[str],
+            allow_override: bool,
+            allow_address_lookup: bool,
+        ):
             if not text:
                 return
             for product in inventory or []:
@@ -133,17 +138,17 @@ class ConversationState:
             elif any(word in text for word in delivery_keywords):
                 if allow_override or not self.pending_order["fulfillment_type"]:
                     self.pending_order["fulfillment_type"] = "delivery"
-                if not self.pending_order["delivery_address"]:
+                if allow_address_lookup and not self.pending_order["delivery_address"]:
                     address = self._extract_delivery_address_from_message(original_text)
                     if address:
                         self.pending_order["delivery_address"] = address
 
         if latest_message:
-            _update_from_text(latest_message.lower(), latest_message, True)
+            _update_from_text(latest_message.lower(), latest_message, True, True)
 
         if history:
             history_lower = history.lower()
-            _update_from_text(history_lower, history, False)
+            _update_from_text(history_lower, history, False, False)
 
     def _normalize_price(self, price: Any) -> Optional[float]:
         if price is None:
@@ -654,6 +659,7 @@ class HaloAgent:
                     payment_reference=order.get("payment_reference"),
                     payment_details_text=payment_details_text,
                     pickup_summary=state.get_pickup_summary(),
+                    order_internal_id=order.get("id"),
                 )
                 order_label = order.get("order_number") or str(order.get("id"))
                 total_text = self._format_currency(order.get("total_amount"))
@@ -779,6 +785,7 @@ class HaloAgent:
                     payment_reference=payment_reference,
                     payment_details_text=payment_details_text,
                     pickup_summary=state.get_pickup_summary(),
+                    order_internal_id=order_id,
                 )
                 reference_hint = payment_reference or order_number
                 reference_line = (
@@ -1095,13 +1102,16 @@ class HaloAgent:
         payment_reference: Optional[str],
         payment_details_text: Optional[str],
         pickup_summary: Optional[str] = None,
+        order_internal_id: Optional[Any] = None,
     ) -> str:
         parts: List[str] = []
-        reference_hint = payment_reference or order_number
-        if order_number:
-            parts.append(f"Order ID: {order_number}")
+        internal_id_text = str(order_internal_id).strip() if order_internal_id else None
+        order_identifier = order_number or (f"ORD-{internal_id_text}" if internal_id_text else None)
+        reference_hint = payment_reference or order_identifier
+        if order_identifier:
+            parts.append(f"Order ID: {order_identifier}")
         if reference_hint:
-            if reference_hint == order_number:
+            if reference_hint == order_identifier:
                 parts.append(
                     f"Use {reference_hint} as your bank transfer narration/reference so we can match the receipt instantly."
                 )

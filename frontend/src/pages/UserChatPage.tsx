@@ -309,7 +309,7 @@ export default function UserChatPage() {
                   </div>
                 </div>
                 <p className="text-sm text-gray-600">
-                  {business.description || 'Chat with us to place orders, track deliveries, and get support'}
+                  Chat with us to place orders, track deliveries, and get support.
                 </p>
                 {business.inventory_preview?.length ? (
                   <p className="mt-3 text-xs text-gray-500">
