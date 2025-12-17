@@ -99,7 +99,6 @@ class SupabaseTools:
                 supabase
                 .table("orders")
                 .insert(order_data)
-                .select("id, order_number, payment_reference")
                 .execute()
             )
             inserted_row = insert_result.data[0] if insert_result.data else {}
