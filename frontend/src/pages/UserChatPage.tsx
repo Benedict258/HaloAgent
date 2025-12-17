@@ -8,11 +8,21 @@ import { useAuth } from '@/contexts/AuthContext'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Store, Package, Bell } from 'lucide-react'
 
+interface ProductPreview {
+  sku?: string
+  name?: string
+  price?: number
+  currency?: string
+  image_url?: string | null
+  available_today?: boolean
+}
+
 interface Business {
   business_id: string
-  name: string
-  whatsapp_number: string
-  inventory: any[]
+  business_name: string
+  description?: string | null
+  whatsapp_number?: string | null
+  inventory_preview?: ProductPreview[]
 }
 
 interface Message {
@@ -32,6 +42,7 @@ export default function UserChatPage() {
   const [showNotifications, setShowNotifications] = useState(false)
   const [isBootstrappingPhone, setIsBootstrappingPhone] = useState(true)
   const [phoneError, setPhoneError] = useState<string | null>(null)
+  const [businessesError, setBusinessesError] = useState<string | null>(null)
   const navigate = useNavigate()
   const { user } = useAuth()
 
@@ -153,15 +164,37 @@ export default function UserChatPage() {
 
   const fetchBusinesses = async () => {
     try {
-      // For now, hardcode the demo business
-      setBusinesses([{
-        business_id: 'sweetcrumbs_001',
-        name: 'SweetCrumbs Cakes',
-        whatsapp_number: '+14155238886',
-        inventory: []
-      }])
+      const res = await fetch(`${API_URL}/api/public/businesses?limit=12`)
+      if (!res.ok) {
+        throw new Error('Failed to load businesses')
+      }
+      const data = await res.json()
+      const payload = Array.isArray(data?.businesses)
+        ? data.businesses
+        : Array.isArray(data)
+          ? data
+          : []
+
+      if (!payload.length) {
+        setBusinesses([])
+        return
+      }
+
+      const normalized = payload.map((biz: any) => ({
+        business_id: biz?.business_id,
+        business_name: biz?.business_name || 'Unnamed Business',
+        description: biz?.description,
+        whatsapp_number: biz?.whatsapp_number,
+        inventory_preview: Array.isArray(biz?.inventory_preview) ? biz.inventory_preview : [],
+      }))
+
+      const filtered = normalized.filter((biz: Business) => Boolean(biz.business_id))
+      setBusinesses(filtered)
+      setBusinessesError(filtered.length ? null : 'No businesses are available yet. Please check back soon.')
     } catch (error) {
       console.error('Failed to fetch businesses:', error)
+      setBusinesses([])
+      setBusinessesError('Unable to load businesses right now. Please retry in a bit.')
     }
   }
 
@@ -250,6 +283,12 @@ export default function UserChatPage() {
             <p className="text-gray-600">Select a business to start chatting</p>
           </div>
 
+          {businessesError && (
+            <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+              {businessesError}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {businesses.map((business, index) => (
               <motion.div
@@ -265,16 +304,25 @@ export default function UserChatPage() {
                     <Store className="w-6 h-6 text-brand" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-black">{business.name}</h3>
+                    <h3 className="font-semibold text-black">{business.business_name}</h3>
                     <p className="text-sm text-gray-500">Online</p>
                   </div>
                 </div>
                 <p className="text-sm text-gray-600">
-                  Chat with us to place orders, track deliveries, and get support
+                  {business.description || 'Chat with us to place orders, track deliveries, and get support'}
                 </p>
+                {business.inventory_preview?.length ? (
+                  <p className="mt-3 text-xs text-gray-500">
+                    Popular: {business.inventory_preview.slice(0, 2).map(item => item?.name).filter(Boolean).join(', ')}
+                  </p>
+                ) : null}
               </motion.div>
             ))}
           </div>
+
+          {!businesses.length && !businessesError && (
+            <p className="text-sm text-gray-500">There are no active businesses yet. Once a team sets up on HaloAgent, they will appear here automatically.</p>
+          )}
         </div>
       </div>
     )
@@ -299,7 +347,7 @@ export default function UserChatPage() {
               <Store className="w-5 h-5 text-brand" />
             </div>
             <div>
-              <h2 className="font-semibold text-black">{selectedBusiness.name}</h2>
+              <h2 className="font-semibold text-black">{selectedBusiness.business_name}</h2>
               <p className="text-xs text-green-600">● Online</p>
             </div>
           </div>

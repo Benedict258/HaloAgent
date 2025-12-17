@@ -1,3 +1,4 @@
+import json
 import re
 import secrets
 from datetime import datetime
@@ -8,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import get_current_user
 from app.core.config import settings
-from app.db.supabase_client import get_supabase
+from app.db.supabase_client import get_supabase, get_supabase_admin
 
 router = APIRouter()
 
@@ -397,6 +398,43 @@ def _serialize_item(item: Dict[str, Any]) -> Dict[str, Any]:
     return serialized
 
 
+@router.get("/public/businesses")
+async def list_public_businesses(limit: int = 12, search: Optional[str] = None):
+    """Provide a lightweight showcase of available businesses for end users."""
+    supabase = get_supabase_admin()
+    safe_limit = max(1, min(limit, 50))
+    try:
+        query = (
+            supabase
+            .table("businesses")
+            .select(
+                "business_id,business_name,description,whatsapp_number,pickup_address,pickup_instructions,inventory"
+            )
+            .order("created_at", desc=True)
+            .limit(safe_limit)
+        )
+        if search and search.strip():
+            query = query.ilike("business_name", f"%{search.strip()}%")
+        result = query.execute()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to load businesses: {exc}") from exc
+
+    showcases: List[Dict[str, Any]] = []
+    for row in result.data or []:
+        inventory_snapshot = _parse_inventory_snapshot(row.get("inventory"))
+        showcases.append({
+            "business_id": row.get("business_id"),
+            "business_name": row.get("business_name"),
+            "description": row.get("description"),
+            "whatsapp_number": row.get("whatsapp_number"),
+            "pickup_address": row.get("pickup_address"),
+            "pickup_instructions": row.get("pickup_instructions"),
+            "inventory_preview": _build_inventory_preview(inventory_snapshot),
+        })
+
+    return {"businesses": showcases}
+
+
 @router.get("/businesses/{business_id}/inventory")
 async def list_inventory(business_id: str, current_user: dict = Depends(_require_business_account)):
     supabase = get_supabase()
@@ -409,6 +447,40 @@ async def list_inventory(business_id: str, current_user: dict = Depends(_require
         _save_inventory(supabase, target_business_id, normalized["items"])
     sanitized = [_serialize_item(item) for item in normalized["items"]]
     return {"business_id": target_business_id, "inventory": sanitized}
+
+
+def _parse_inventory_snapshot(raw_inventory: Any) -> List[Dict[str, Any]]:
+    """Ensure inventory data is always a list of dicts."""
+    if isinstance(raw_inventory, list):
+        return [item for item in raw_inventory if isinstance(item, dict)]
+    if isinstance(raw_inventory, str):
+        try:
+            parsed = json.loads(raw_inventory)
+            if isinstance(parsed, list):
+                return [item for item in parsed if isinstance(item, dict)]
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
+def _build_inventory_preview(inventory: List[Dict[str, Any]], limit: int = 3) -> List[Dict[str, Any]]:
+    preview: List[Dict[str, Any]] = []
+    for item in inventory:
+        if len(preview) >= limit:
+            break
+        image_url = item.get("image_url")
+        images = item.get("image_urls")
+        if not image_url and isinstance(images, list) and images:
+            image_url = images[0]
+        preview.append({
+            "sku": item.get("sku"),
+            "name": item.get("name"),
+            "price": item.get("price"),
+            "currency": item.get("currency"),
+            "image_url": image_url,
+            "available_today": item.get("available_today"),
+        })
+    return preview
 
 
 @router.post("/businesses/{business_id}/inventory", status_code=201)
