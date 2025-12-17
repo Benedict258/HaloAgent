@@ -373,8 +373,6 @@ export default function UserChatPage() {
       {/* Chat Area */}
       <div className="flex-1 overflow-hidden">
         <AnimatedAIChat
-          businessId={selectedBusiness.business_id}
-          contactPhone={userPhone}
           messages={messages}
           onSendMessage={handleSendMessage}
           isLoading={isLoading}

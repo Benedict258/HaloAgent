@@ -20,6 +20,7 @@ interface Order {
   total_amount: number
   status: string
   created_at: string
+  updated_at?: string
   fulfillment_type?: string
   delivery_address?: string
   payment_receipt_url?: string

@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { API_URL } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/ui/back-button";
-import { CheckCircle2, Globe, PhoneCall, Shield, Zap, Database, Server, Code } from "lucide-react";
+import { CheckCircle2, Globe, PhoneCall, Shield, Database, Server, Code } from "lucide-react";
 
 const LANGUAGE_OPTIONS = [
     { value: "en", label: "English" },
@@ -111,13 +111,13 @@ const parseSettlementAccount = (raw: unknown): SettlementAccountForm => {
     if (!raw) {
         return parsed;
     }
-    let source = raw;
+    let source: unknown = raw;
     if (typeof raw === "string") {
         try {
             source = JSON.parse(raw);
         } catch (err) {
             console.warn("Unable to parse settlement account JSON", err);
-            source = null;
+            return parsed;
         }
     }
     if (source && typeof source === "object") {
@@ -309,7 +309,8 @@ function SetupPage() {
 
     const handleFinishSetup = () => {
         setRedirectAfterSave(true);
-        document.getElementById("business-setup-form")?.requestSubmit();
+        const form = document.getElementById("business-setup-form") as HTMLFormElement | null;
+        form?.requestSubmit();
     };
 
     const toggleIntegrationChannel = (channel: keyof IntegrationsState) => {
@@ -914,6 +915,14 @@ function SetupPage() {
                     <div className="mb-6 flex items-center gap-3">
                         <Shield className="h-6 w-6 text-brand" />
                         <h3 className="text-2xl font-bold text-black">Developer mode — exact contracts</h3>
+                    </div>
+                    <div className="mb-6">
+                        <p className="text-sm font-semibold text-black">Implementation checklist</p>
+                        <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-gray-700">
+                            {developerSteps.map((step) => (
+                                <li key={step}>{step}</li>
+                            ))}
+                        </ol>
                     </div>
                     <div className="grid gap-6 md:grid-cols-2">
                         <div className="space-y-4 text-sm text-gray-700">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { SendIcon, LoaderIcon } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -12,16 +12,12 @@ interface Message {
 }
 
 interface AnimatedAIChatProps {
-  businessId: string;
-  contactPhone: string;
   messages: Message[];
   onSendMessage: (message: string) => Promise<void>;
   isLoading?: boolean;
 }
 
 export function AnimatedAIChat({ 
-  businessId, 
-  contactPhone, 
   messages, 
   onSendMessage,
   isLoading = false 

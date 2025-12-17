@@ -38,7 +38,6 @@ export default function RevenuePage() {
       const orders = await res.json()
       
       if (Array.isArray(orders)) {
-        const total = orders.reduce((sum, order) => sum + (order.total_amount || 0), 0)
         const completed = orders.filter(o => o.status === 'completed')
         const completedRevenue = completed.reduce((sum, order) => sum + (order.total_amount || 0), 0)
         const pending = orders.filter(o => ['pending_payment', 'payment_pending_review', 'awaiting_confirmation'].includes(o.status))
