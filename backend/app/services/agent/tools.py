@@ -4,6 +4,7 @@ from app.services.analytics import analytics_service
 from app.services.language import language_service
 from app.services.agent.supabase_tools import supabase_tools
 from app.services.media import media_service
+from app.services.payments import payment_service
 from typing import Dict, Any, List
 import json
 
@@ -247,6 +248,44 @@ class AgentTools:
             logger = logging.getLogger(__name__)
             logger.error(f"send_all_products error: {e}", exc_info=True)
             return json.dumps({"status": "error", "message": str(e)})
+
+    async def mark_payment_received(
+        self,
+        *,
+        phone: str,
+        business_id: str,
+        order_reference: str = None,
+        confirmation_note: str = None,
+        channel: str = "whatsapp",
+    ) -> str:
+        """Mark the customer's latest pending order as awaiting confirmation when payment proof is mentioned."""
+
+        try:
+            update = await payment_service.mark_payment_pending_review(
+                business_id=business_id,
+                contact_phone=phone,
+                note=confirmation_note or f"Customer confirmed payment via {channel}",
+            )
+
+            if not update:
+                return json.dumps({
+                    "status": "error",
+                    "message": "No pending order found to mark as paid.",
+                })
+
+            payload = {
+                "status": "success",
+                "order_id": update.get("order_id"),
+                "order_number": update.get("order_number"),
+                "payment_reference": update.get("payment_reference"),
+                "message": "Order moved to awaiting confirmation.",
+            }
+            if order_reference and order_reference != payload["payment_reference"]:
+                payload["note"] = f"Customer referenced {order_reference}"
+            return json.dumps(payload)
+
+        except Exception as exc:
+            return json.dumps({"status": "error", "message": str(exc)})
     
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
         """Return the JSON schema definitions for the tools."""
@@ -367,6 +406,21 @@ class AgentTools:
                     "properties": {
                         "phone": {"type": "string", "description": "Customer phone number"},
                         "business_id": {"type": "string", "description": "Business ID"},
+                        "channel": {"type": "string", "description": "Channel invoking the tool (web, whatsapp, sms)"}
+                    },
+                    "required": ["phone", "business_id"]
+                }
+            },
+            {
+                "name": "mark_payment_received",
+                "description": "Mark the latest pending order as awaiting confirmation when a customer confirms payment. Use after they clearly say they've paid or sent the receipt.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "phone": {"type": "string", "description": "Customer phone number"},
+                        "business_id": {"type": "string", "description": "Business ID"},
+                        "order_reference": {"type": "string", "description": "Reference the customer mentioned (ORD-XXXX or transfer narration)"},
+                        "confirmation_note": {"type": "string", "description": "Optional note or summary of what the customer said"},
                         "channel": {"type": "string", "description": "Channel invoking the tool (web, whatsapp, sms)"}
                     },
                     "required": ["phone", "business_id"]
