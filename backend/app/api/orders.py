@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
 from app.db.supabase_client import supabase, supabase_admin
 from datetime import datetime
+from uuid import uuid4
 import logging
 from app.api.auth import require_business_user
 from pathlib import Path
@@ -122,6 +123,9 @@ async def get_order(order_id: str, current_user: dict = Depends(require_business
 async def approve_payment(order_id: str, approval: PaymentApproval, current_user: dict = Depends(require_business_user)):
     """Owner approves/rejects payment - AI sends notification to customer"""
     try:
+        if approval.approved is False and not (approval.notes and approval.notes.strip()):
+            raise HTTPException(status_code=400, detail="Rejection notes are required when declining a payment")
+
         business_id = current_user["business_id"]
         # Get order with contact info
         order = (
@@ -174,8 +178,12 @@ async def approve_payment(order_id: str, approval: PaymentApproval, current_user
         payment_reference = order.data.get("payment_reference")
         reference_line = f"\nReference: {payment_reference}" if payment_reference else ""
         
-        # Send message via AI agent
-        phone = order.data["contacts"]["phone_number"]
+        contact_record = order.data.get("contacts") or {}
+        phone = contact_record.get("phone_number") or order.data.get("contact_phone")
+        contact_id = order.data.get("contact_id")
+        if not phone:
+            logger.error("Order %s is missing a contact phone number", order_id)
+            raise HTTPException(status_code=400, detail="Unable to notify customer for this order")
         
         if approval.approved:
             message = (
@@ -192,6 +200,16 @@ async def approve_payment(order_id: str, approval: PaymentApproval, current_user
         # Send via Twilio (WhatsApp)
         from app.api.webhooks import send_twilio_message
         await send_twilio_message(phone, message)
+
+        # Mirror the decision message into message logs so customers also see it on web chat
+        if contact_id:
+            _log_customer_payment_message(
+                contact_id=contact_id,
+                content=message,
+                channel="whatsapp",
+            )
+        else:
+            logger.warning("Payment decision for order %s could not be logged because contact_id is missing", order_id)
         
         return {"success": True, "status": new_status, "message_sent": True}
     except Exception as e:
@@ -359,3 +377,19 @@ async def update_order_status(order_id: str, update: OrderStatusUpdate, current_
     except Exception as e:
         logger.error(f"Update status error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _log_customer_payment_message(*, contact_id: int, content: str, channel: str = "whatsapp") -> None:
+    """Persist outbound payment decision so it appears in web chat history."""
+    try:
+        supabase.table("message_logs").insert({
+            "contact_id": contact_id,
+            "message_id": f"payment-decision-{uuid4().hex}",
+            "direction": "OUT",
+            "message_type": channel,
+            "content": content,
+            "status": "sent",
+            "created_at": datetime.utcnow().isoformat(),
+        }).execute()
+    except Exception as log_err:
+        logger.warning("Unable to record payment decision message for contact %s: %s", contact_id, log_err)
