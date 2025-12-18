@@ -37,6 +37,9 @@ class ContactService:
                 return res.data[0]
             
             return None
+        except Exception as e:
+            logger.error(f"Error in get_or_create_contact: {e}")
+            return None
 
     async def ensure_contact_profile(
         self,
@@ -50,31 +53,31 @@ class ContactService:
         if not contact:
             return None
 
+        if not name or not name.strip():
+            return contact
+
+        normalized = name.strip()
+        existing = (contact.get("name") or "").strip()
+        if existing and existing.lower() not in {"unknown", phone.lower()}:
+            return contact
+
         try:
-            if name and name.strip():
-                normalized = name.strip()
-                existing = (contact.get("name") or "").strip()
-                if not existing or existing.lower() in {"unknown", phone.lower()}:
-                    updated = (
-                        supabase
-                        .table("contacts")
-                        .update({
-                            "name": normalized,
-                            "updated_at": datetime.utcnow().isoformat(),
-                        })
-                        .eq("id", contact["id"])
-                        .execute()
-                    )
-                    if updated.data:
-                        contact = updated.data[0]
+            updated = (
+                supabase
+                .table("contacts")
+                .update({
+                    "name": normalized,
+                    "updated_at": datetime.utcnow().isoformat(),
+                })
+                .eq("id", contact["id"])
+                .execute()
+            )
+            if updated.data:
+                contact = updated.data[0]
         except Exception as err:
             logger.warning("Unable to enrich contact profile for %s: %s", phone, err)
 
         return contact
-            
-        except Exception as e:
-            logger.error(f"Error in get_or_create_contact: {e}")
-            return None
     
     async def update_consent(self, phone: str, business_id: str, opt_in: bool, consent_phrase: str = None) -> bool:
         """Update contact consent status"""
