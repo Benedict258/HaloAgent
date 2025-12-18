@@ -93,7 +93,7 @@ async def get_notifications(current_user: dict = Depends(require_business_user))
             supabase.table("orders")
             .select(
                 "id, order_number, status, total_amount, payment_receipt_url, payment_reference, delivery_address, payment_notes, updated_at, created_at, "
-                "contacts(name, phone_number, users(first_name, last_name))"
+                "contacts(name, phone_number, user_id, users(first_name))"
             )
             .eq("business_id", business_id)
             .in_("status", ["payment_pending_review", "awaiting_confirmation", "payment_rejected"])

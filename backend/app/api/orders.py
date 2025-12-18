@@ -6,13 +6,15 @@ from uuid import uuid4
 import logging
 from app.api.auth import require_business_user
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parents[3]
 RECEIPT_UPLOAD_DIR = BASE_DIR / "uploads" / "receipts"
 RECEIPT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+_USER_NAME_CACHE: Dict[int, Optional[str]] = {}
 
 class OrderStatusUpdate(BaseModel):
     status: str
@@ -34,7 +36,7 @@ async def get_payment_reviews(current_user: dict = Depends(require_business_user
             .select(
                 "id, order_number, total_amount, status, payment_reference, payment_receipt_url, "
                 "payment_receipt_uploaded_at, payment_receipt_analysis, payment_notes, updated_at, "
-                "contacts(name, phone_number, users(first_name, last_name))"
+                "contacts(name, phone_number, user_id, users(first_name))"
             )
             .eq("business_id", business_id)
             .in_("status", ["payment_pending_review", "awaiting_confirmation"])
@@ -410,11 +412,37 @@ def _log_customer_payment_message(*, contact_id: int, content: str, channel: str
 def _format_contact(contact_payload: Optional[dict], fallback_phone: Optional[str] = None) -> dict:
     payload = contact_payload or {}
     user_profile = payload.get("users") or {}
-
     first_name = (user_profile.get("first_name") or "").strip()
+    if not first_name:
+        first_name = _get_user_first_name(payload.get("user_id")) or ""
 
     stored_name = (payload.get("name") or "").strip()
     friendly_name = stored_name or first_name or payload.get("phone_number") or fallback_phone or "Customer"
     friendly_phone = payload.get("phone_number") or fallback_phone or "N/A"
 
     return {"name": friendly_name, "phone_number": friendly_phone}
+
+
+def _get_user_first_name(user_id: Optional[int]) -> Optional[str]:
+    if not user_id:
+        return None
+    cached = _USER_NAME_CACHE.get(user_id)
+    if cached is not None:
+        return cached
+
+    try:
+        result = (
+            supabase
+            .table("users")
+            .select("first_name")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        first_name = (result.data or {}).get("first_name") if result.data else None
+        _USER_NAME_CACHE[user_id] = (first_name or "")
+        return first_name
+    except Exception as err:
+        logger.warning("Unable to load user name for %s: %s", user_id, err)
+        _USER_NAME_CACHE[user_id] = None
+        return None
