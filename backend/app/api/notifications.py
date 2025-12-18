@@ -102,6 +102,7 @@ async def get_notifications(current_user: dict = Depends(require_business_user))
         for order in payment_orders.data or []:
             notif_id = _notification_id("payment_confirmation", order["id"])
             contact = order.get("contacts") or {}
+            contact_name = contact.get("name") or contact.get("phone_number") or "Customer"
             reference = order.get("payment_reference")
             receipt_url = order.get("payment_receipt_url")
             append_notification({
@@ -111,7 +112,7 @@ async def get_notifications(current_user: dict = Depends(require_business_user))
                 "category": "payments",
                 "title": "Payment awaiting approval",
                 "message": (
-                    f"{contact.get('name') or 'Customer'} paid order #{order.get('order_number') or order['id']}"
+                    f"{contact_name} paid order #{order.get('order_number') or order['id']}"
                     + (f" · Ref: {reference}" if reference else "")
                 ),
                 "order_id": order["id"],

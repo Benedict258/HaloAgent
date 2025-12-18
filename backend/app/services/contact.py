@@ -37,6 +37,40 @@ class ContactService:
                 return res.data[0]
             
             return None
+
+    async def ensure_contact_profile(
+        self,
+        *,
+        phone: str,
+        business_id: str,
+        name: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """Create contact if needed and enrich profile with the latest metadata."""
+        contact = await self.get_or_create_contact(phone, business_id)
+        if not contact:
+            return None
+
+        try:
+            if name and name.strip():
+                normalized = name.strip()
+                existing = (contact.get("name") or "").strip()
+                if not existing or existing.lower() in {"unknown", phone.lower()}:
+                    updated = (
+                        supabase
+                        .table("contacts")
+                        .update({
+                            "name": normalized,
+                            "updated_at": datetime.utcnow().isoformat(),
+                        })
+                        .eq("id", contact["id"])
+                        .execute()
+                    )
+                    if updated.data:
+                        contact = updated.data[0]
+        except Exception as err:
+            logger.warning("Unable to enrich contact profile for %s: %s", phone, err)
+
+        return contact
             
         except Exception as e:
             logger.error(f"Error in get_or_create_contact: {e}")

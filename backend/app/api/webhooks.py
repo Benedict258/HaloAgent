@@ -109,6 +109,13 @@ async def receive_whatsapp_message(request: Request):
         message_id = data.get("MessageSid", "twilio-msg")
         num_media = int(data.get("NumMedia", 0))
 
+        await _maybe_enrich_contact_profile(
+            from_number=from_number,
+            to_number=to_number,
+            name=data.get("ProfileName") or data.get("WaIdName"),
+            source="twilio",
+        )
+
         # Check if it's a voice note
         if num_media > 0:
             media_content_type = data.get("MediaContentType0", "")
@@ -173,16 +180,34 @@ async def receive_whatsapp_message(request: Request):
         for change in entry.get("changes", []):
             value = change.get("value", {})
 
+            profile_map = {}
+            for contact in value.get("contacts", []) or []:
+                wa_id = contact.get("wa_id")
+                profile_name = (contact.get("profile") or {}).get("name")
+                if wa_id and profile_name:
+                    profile_map[wa_id] = profile_name
+
+            metadata = value.get("metadata", {})
+            display_number = metadata.get("display_phone_number")
+            resolved_business_number = _normalize_phone_number(display_number)
+
             if "messages" in value:
                 for message in value["messages"]:
                     from_number = message.get("from")
                     message_type = message.get("type")
                     message_id = message.get("id")
+                    profile_name = profile_map.get(from_number)
 
                     if message_type == "text":
                         text_body = message.get("text", {}).get("body", "")
                         phone_id = value.get("metadata", {}).get("phone_number_id", settings.WHATSAPP_PHONE_NUMBER_ID)
                         to_number = f"+{phone_id}" if not phone_id.startswith("+") else phone_id
+                        await _maybe_enrich_contact_profile(
+                            from_number=from_number,
+                            to_number=resolved_business_number or to_number,
+                            name=profile_name,
+                            source="meta",
+                        )
                         logger.info(f"Processing Meta message from {from_number} to {to_number}: {text_body}")
                         response_text = await orchestrator.process_message(from_number, text_body, message_id, to_number, channel="meta")
                         if response_text:
@@ -192,6 +217,12 @@ async def receive_whatsapp_message(request: Request):
                         # Handle voice note
                         audio_id = message.get("audio", {}).get("id")
                         logger.info(f"Processing voice note from {from_number}: {audio_id}")
+                        await _maybe_enrich_contact_profile(
+                            from_number=from_number,
+                            to_number=resolved_business_number,
+                            name=profile_name,
+                            source="meta",
+                        )
                         
                         # Download and transcribe
                         from app.services.voice import voice_service
@@ -218,6 +249,12 @@ async def receive_whatsapp_message(request: Request):
                         image_id = message.get("image", {}).get("id")
                         caption = message.get("image", {}).get("caption") or message.get("text", {}).get("body", "")
                         if image_id:
+                            await _maybe_enrich_contact_profile(
+                                from_number=from_number,
+                                to_number=resolved_business_number or phone_id,
+                                name=profile_name,
+                                source="meta",
+                            )
                             media_url = f"https://graph.facebook.com/v18.0/{image_id}"
                             logger.info(f"Processing Meta image from {from_number}: {image_id}")
                             image_result = await _handle_image_attachment(
@@ -411,6 +448,41 @@ def _fetch_latest_pending_order(contact_id: int) -> Optional[dict]:
     except Exception as exc:
         logger.error("Failed to fetch pending order: %s", exc)
     return None
+
+
+def _normalize_phone_number(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    return value if value.startswith("+") else f"+{value}"
+
+
+async def _maybe_enrich_contact_profile(*, from_number: str, to_number: Optional[str], name: Optional[str], source: str) -> None:
+    if not from_number or not name:
+        return
+    normalized_name = name.strip()
+    if not normalized_name:
+        return
+
+    normalized_to = _normalize_phone_number(to_number)
+    business = None
+    if normalized_to:
+        business = await business_service.get_business_by_whatsapp(normalized_to)
+
+    if not business:
+        return
+
+    business_id = business.get("business_id")
+    if not business_id:
+        return
+
+    await contact_service.ensure_contact_profile(
+        phone=from_number,
+        business_id=business_id,
+        name=normalized_name,
+    )
 
 # -------------------------------
 # Helper Senders (Restored for completeness)

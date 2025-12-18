@@ -91,9 +91,13 @@ async def get_orders(status: str = None, current_user: dict = Depends(require_bu
             
             if order.get('contact_id'):
                 contact = supabase.table("contacts").select("name, phone_number").eq("id", order['contact_id']).single().execute()
-                order['contacts'] = contact.data if contact.data else {"name": "Unknown", "phone_number": "N/A"}
+                contact_payload = contact.data if contact.data else {}
             else:
-                order['contacts'] = {"name": "Unknown", "phone_number": "N/A"}
+                contact_payload = {}
+
+            friendly_name = contact_payload.get("name") or contact_payload.get("phone_number") or "Customer"
+            friendly_phone = contact_payload.get("phone_number") or order.get("contact_phone") or "N/A"
+            order['contacts'] = {"name": friendly_name, "phone_number": friendly_phone}
         
         return orders
     except Exception as e:
