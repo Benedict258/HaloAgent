@@ -4,6 +4,8 @@ from app.db.supabase_client import supabase
 from datetime import datetime
 import logging
 from pathlib import Path
+import uuid
+from app.services.orchestrator import orchestrator
 from app.services.payments import payment_service
 from app.services.vision import vision_service
 
@@ -24,124 +26,28 @@ class SendMessage(BaseModel):
 async def send_message(data: SendMessage):
     """Send message from web UI or programmatically"""
     try:
-        business_name = None
-        contact_name = None
-        business = (
-            supabase
-            .table("businesses")
-            .select("business_name")
-            .eq("business_id", data.business_id)
-            .limit(1)
-            .execute()
+        metadata = await orchestrator.process_message(
+            data.contact_phone,
+            data.body,
+            message_id=f"web-{uuid.uuid4().hex}",
+            to_number=None,
+            channel=data.channel or "web",
+            business_id=data.business_id,
+            include_metadata=True,
         )
-        if business.data:
-            business_name = business.data[0].get("business_name")
 
-        # Get or create contact
-        contact = (
-            supabase
-            .table("contacts")
-            .select("id, name")
-            .eq("phone_number", data.contact_phone)
-            .eq("business_id", data.business_id)
-            .execute()
-        )
-        created_new_contact = False
+        response = metadata.get("response_text")
+        contact_id = metadata.get("contact_id")
+        if not contact_id:
+            raise HTTPException(status_code=400, detail="Unable to route message for this business")
 
-        if not contact.data:
-            # Create contact
-            new_contact = (
-                supabase
-                .table("contacts")
-                .insert({
-                    "phone_number": data.contact_phone,
-                    "business_id": data.business_id,
-                    "opt_in": True
-                })
-                .execute()
-            )
-            contact_id = new_contact.data[0]["id"]
-            created_new_contact = True
-        else:
-            contact_id = contact.data[0]["id"]
-            contact_name = contact.data[0].get("name")
-
-        # Log message
-        message_log = {
-            "contact_id": contact_id,
-            "direction": "IN",
-            "message_type": data.channel,
-            "content": data.body,
-            "status": "delivered"
-        }
-        inbound_record = (
-            supabase
-            .table("message_logs")
-            .insert(message_log)
-            .execute()
-        )
-        inbound_message = inbound_record.data[0] if inbound_record.data else None
-        
-        # Process through AI agent directly (bypass orchestrator for web)
-        from app.services.agent.core import agent
-        
-        # Build context
-        context = f"Phone: {data.contact_phone}, Business ID: {data.business_id}, Channel: {data.channel}"
-        
-        try:
-            response = await agent.run(
-                data.body,
-                data.contact_phone,
-                context,
-                business_id=data.business_id,
-                channel=data.channel,
-            )
-        except Exception as e:
-            logger.error(f"Agent error: {e}", exc_info=True)
-            response = "I'm having trouble processing that. Please try again!"
-        
-        business_label = business_name or "our business"
-        if contact_name:
-            greeting = (
-                f"Hi {contact_name}! You're chatting with {business_label}. "
-                "Happy to help with anything you need—just let me know what you're craving."
-            )
-        else:
-            greeting = (
-                f"Hey there! It's {business_label}. I'm here if you need recommendations or want to place an order—"
-                "what are you in the mood for today?"
-            )
-
-        if created_new_contact:
-            response = f"{greeting}\n\n{response}" if response else greeting
-        elif not response:
-            response = greeting
-
-        # Log response
-        outbound_message = None
-        if response:
-            response_log = {
-                "contact_id": contact_id,
-                "direction": "OUT",
-                "message_type": data.channel,
-                "content": response,
-                "status": "sent"
-            }
-            outbound_record = (
-                supabase
-                .table("message_logs")
-                .insert(response_log)
-                .execute()
-            )
-            outbound_message = outbound_record.data[0] if outbound_record.data else None
-        
         return {
             "status": "sent",
             "response": response,
             "contact_id": contact_id,
             "message_logs": {
-                "inbound": inbound_message,
-                "outbound": outbound_message
+                "inbound": metadata.get("inbound_log"),
+                "outbound": metadata.get("outbound_log")
             }
         }
     
