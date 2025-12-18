@@ -32,7 +32,7 @@ async def get_payment_reviews(current_user: dict = Depends(require_business_user
             .table("orders")
             .select(
                 "id, order_number, total_amount, status, payment_reference, payment_receipt_url, "
-                "payment_receipt_uploaded_at, payment_receipt_analysis, updated_at, contacts(name, phone_number)"
+                "payment_receipt_uploaded_at, payment_receipt_analysis, payment_notes, updated_at, contacts(name, phone_number)"
             )
             .eq("business_id", business_id)
             .in_("status", ["payment_pending_review", "awaiting_confirmation"])

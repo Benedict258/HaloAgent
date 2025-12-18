@@ -25,6 +25,7 @@ interface Order {
   delivery_address?: string
   payment_receipt_url?: string
   payment_reference?: string
+  payment_notes?: string
   contacts: Contact
 }
 
@@ -456,6 +457,13 @@ export default function OrdersPage() {
                         </div>
                       </div>
 
+                      {review.payment_notes && (
+                        <div className="mt-4 rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+                          <p className="text-xs font-semibold uppercase tracking-wide opacity-70">Owner note</p>
+                          <p className="mt-1 whitespace-pre-wrap">{review.payment_notes}</p>
+                        </div>
+                      )}
+
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button
                           onClick={() => setSelectedReview(review)}
@@ -549,6 +557,13 @@ export default function OrdersPage() {
                           )}
                         </div>
                       </div>
+
+                      {order.payment_notes && (
+                        <div className="mt-3 rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+                          <p className="text-xs font-semibold uppercase tracking-wide opacity-70">Payment note</p>
+                          <p className="mt-1 whitespace-pre-wrap">{order.payment_notes}</p>
+                        </div>
+                      )}
 
                       <div className="mt-3 flex flex-wrap gap-2">
                         {order.status === 'awaiting_confirmation' && (
