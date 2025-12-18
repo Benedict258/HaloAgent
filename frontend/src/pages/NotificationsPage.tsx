@@ -65,8 +65,6 @@ interface NotificationItem {
   reference?: string;
   contact_phone?: string;
   delivery_address?: string;
-  notes?: string;
-  status?: string;
   read: boolean;
 }
 
@@ -331,19 +329,6 @@ export default function NotificationsPage() {
                           <p className="text-sm font-semibold text-gray-700 mt-1">
                             Amount: ₦{item.amount.toLocaleString()}
                           </p>
-                        )}
-                        {item.notes && (
-                          <div className={cn(
-                            "mt-3 rounded-xl border px-3 py-2 text-sm",
-                            item.status === "payment_rejected"
-                              ? "border-red-100 bg-red-50 text-red-700"
-                              : "border-amber-100 bg-amber-50 text-amber-800"
-                          )}>
-                            <p className="text-xs font-semibold uppercase tracking-wide opacity-70">
-                              Owner note
-                            </p>
-                            <p>{item.notes}</p>
-                          </div>
                         )}
                       </div>
                     </div>
