@@ -17,8 +17,7 @@ class ConversationState:
             "price": None,
             "quantity": 1,
             "fulfillment_type": None,
-            "delivery_address": None,
-            "notes": None,
+            "delivery_address": None
         }
         self.order_intent_confirmed = False
         self.last_intent = None
@@ -60,48 +59,9 @@ class ConversationState:
             "price": None,
             "quantity": 1,
             "fulfillment_type": None,
-            "delivery_address": None,
-            "notes": None,
+            "delivery_address": None
         }
         self.order_intent_confirmed = False
-
-    def apply_pending_order_update(
-        self,
-        *,
-        product_name: Optional[str] = None,
-        quantity: Optional[int] = None,
-        price: Optional[Any] = None,
-        notes: Optional[str] = None,
-    ) -> None:
-        if product_name:
-            self.pending_order["product_name"] = product_name.strip()
-        if quantity is not None:
-            try:
-                qty = max(1, int(quantity))
-            except Exception:
-                qty = 1
-            self.pending_order["quantity"] = qty
-        if price is not None:
-            normalized = self._normalize_price(price)
-            self.pending_order["price"] = normalized if normalized is not None else price
-        if notes:
-            self.pending_order["notes"] = notes.strip()
-
-    def apply_fulfillment_update(
-        self,
-        *,
-        fulfillment_type: str,
-        delivery_address: Optional[str] = None,
-    ) -> None:
-        normalized = (fulfillment_type or "").strip().lower()
-        if normalized not in {"pickup", "delivery"}:
-            return
-        self.pending_order["fulfillment_type"] = normalized
-        if normalized == "delivery":
-            if delivery_address:
-                self.pending_order["delivery_address"] = delivery_address.strip()
-        else:
-            self.pending_order["delivery_address"] = None
 
     def mark_order_intent(self):
         self.order_intent_confirmed = True
@@ -148,8 +108,7 @@ class ConversationState:
             self.last_normalized_message = normalized_text
 
     def extract_from_history(self, history: str, latest_message: Optional[str], inventory: List[Dict[str, Any]]):
-        """Intentionally left blank so the AI agent owns every state change."""
-        return
+        """Extract order cues from conversation history and latest message."""
 
         def _update_from_text(
             text: Optional[str],
@@ -169,18 +128,7 @@ class ConversationState:
                         self.pending_order["price"] = self._normalize_price(product.get("price"))
                     break
 
-            pickup_keywords = [
-                "pickup",
-                "pick up",
-                "pick-up",
-                "pick it up",
-                "picking up",
-                "picking it up",
-                "collect",
-                "collection",
-                "self pickup",
-                "self-pickup",
-            ]
+            pickup_keywords = ["pickup", "pick up", "pick-up", "collect", "collection"]
             delivery_keywords = ["deliver", "delivery", "deliveries", "drop off", "ship"]
 
             if any(word in text for word in pickup_keywords):
@@ -421,54 +369,7 @@ class ConversationState:
 class HaloAgent:
     def __init__(self):
         self.tools = agent_tools
-        self.state_tool_definitions = [
-            {
-                "name": "pending_order_update",
-                "description": "Store or revise the customer's requested items (name, quantity, price, or note) so the agent can act on it later.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "product_name": {"type": "string", "description": "Exact product or service the customer mentioned."},
-                        "quantity": {"type": "integer", "minimum": 1, "description": "Number of units requested."},
-                        "price": {
-                            "anyOf": [
-                                {"type": "number"},
-                                {"type": "string"}
-                            ],
-                            "description": "Unit price to remember (numeric value preferred)."
-                        },
-                        "notes": {"type": "string", "description": "Special notes or sizing details to remember."},
-                        "reset": {"type": "boolean", "description": "Set to true to clear the pending order entirely."}
-                    }
-                }
-            },
-            {
-                "name": "pending_order_fulfillment",
-                "description": "Capture whether the customer wants pickup or delivery and the optional delivery address.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "fulfillment_type": {
-                            "type": "string",
-                            "enum": ["pickup", "delivery"],
-                            "description": "Fulfillment preference straight from the customer."
-                        },
-                        "delivery_address": {
-                            "type": "string",
-                            "description": "Required when fulfillment_type is delivery."
-                        }
-                    },
-                    "required": ["fulfillment_type"]
-                }
-            },
-            {
-                "name": "pending_order_reset",
-                "description": "Clear every pending order detail (use after an order is submitted or cancelled).",
-                "parameters": {"type": "object", "properties": {}}
-            }
-        ]
-        combined_tools = self.state_tool_definitions + self.tools.get_tool_definitions()
-        self.tool_definitions = combined_tools
+        self.tool_definitions = self.tools.get_tool_definitions()
         self.system_prompt = agent_prompts.get_system_prompt(json.dumps(self.tool_definitions, indent=2))
         self.max_iterations = 5
         self.conversation_states = {}  # (business_id:phone) -> ConversationState
@@ -496,7 +397,6 @@ class HaloAgent:
         from app.db.supabase_client import supabase
 
         conversation_history = ""
-        customer_history = ""
         inventory: List[Dict[str, Any]] = []
         business_name = state.business_name
         payment_details_text = None
@@ -537,8 +437,6 @@ class HaloAgent:
                     for msg in reversed(history.data[-8:]):
                         role = "Customer" if msg["direction"] == "IN" else "You"
                         conversation_history += f"{role}: {msg['content']}\n"
-                        if msg["direction"] == "IN":
-                            customer_history += f"{msg['content']}\n"
 
                 orders_result = (
                     supabase
@@ -585,7 +483,7 @@ class HaloAgent:
             logger.error(f"Error loading context: {e}")
             payment_details_text = None
 
-        state.extract_from_history(customer_history, message, inventory)
+        state.extract_from_history(conversation_history, message, inventory)
         state.update_profile(contact_data, recent_orders)
 
         if state.pending_order.get("product_name") and not state.pending_order.get("price"):
@@ -613,6 +511,26 @@ class HaloAgent:
             raw_message=message,
             supabase_client=supabase,
         )
+
+        if (
+            state.pending_order.get("fulfillment_type") == "delivery"
+            and not state.pending_order.get("delivery_address")
+        ):
+            fallback_address = state.profile.get("last_delivery_address")
+            if fallback_address:
+                same_address_cues = [
+                    "same address",
+                    "same spot",
+                    "same place",
+                    "same as before",
+                    "usual address",
+                    "usual spot",
+                    "deliver to the usual",
+                    "you already have my address",
+                    "use my saved address",
+                ]
+                if any(phrase in message_lower for phrase in same_address_cues):
+                    state.pending_order["delivery_address"] = fallback_address
 
         # Check if user is notifying payment
         payment_confirmation_requested = self._looks_like_payment_confirmation(message_lower)

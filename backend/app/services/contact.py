@@ -37,9 +37,6 @@ class ContactService:
                 return res.data[0]
             
             return None
-        except Exception as e:
-            logger.error(f"Error in get_or_create_contact: {e}")
-            return None
 
     async def ensure_contact_profile(
         self,
@@ -74,6 +71,10 @@ class ContactService:
             logger.warning("Unable to enrich contact profile for %s: %s", phone, err)
 
         return contact
+            
+        except Exception as e:
+            logger.error(f"Error in get_or_create_contact: {e}")
+            return None
     
     async def update_consent(self, phone: str, business_id: str, opt_in: bool, consent_phrase: str = None) -> bool:
         """Update contact consent status"""

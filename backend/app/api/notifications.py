@@ -91,10 +91,7 @@ async def get_notifications(current_user: dict = Depends(require_business_user))
         # Pending payment confirmations
         payment_orders = (
             supabase.table("orders")
-            .select(
-                "id, order_number, status, total_amount, payment_receipt_url, payment_reference, delivery_address, payment_notes, updated_at, created_at, "
-                "contacts(name, phone_number, user_id, users(first_name))"
-            )
+            .select("id, order_number, status, total_amount, payment_receipt_url, payment_reference, delivery_address, payment_notes, updated_at, created_at, contacts(name, phone_number)")
             .eq("business_id", business_id)
             .in_("status", ["payment_pending_review", "awaiting_confirmation", "payment_rejected"])
             .order("created_at", desc=True)
@@ -105,9 +102,7 @@ async def get_notifications(current_user: dict = Depends(require_business_user))
         for order in payment_orders.data or []:
             notif_id = _notification_id("payment_confirmation", order["id"])
             contact = order.get("contacts") or {}
-            user_profile = contact.get("users") or {}
-            profile_name = (user_profile.get("first_name") or "").strip() if user_profile else ""
-            contact_name = contact.get("name") or profile_name or contact.get("phone_number") or "Customer"
+            contact_name = contact.get("name") or contact.get("phone_number") or "Customer"
             reference = order.get("payment_reference")
             receipt_url = order.get("payment_receipt_url")
             append_notification({
